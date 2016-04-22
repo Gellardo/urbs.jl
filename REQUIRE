@@ -3,3 +3,6 @@ julia 0.4
 # Excel input
 DataFrames
 ExcelReaders
+
+# optimizing
+JuMP

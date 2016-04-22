@@ -5,4 +5,4 @@ using Base.Test
 @test 1 == 1
 
 filename = normpath(Pkg.dir("urbs"),"test", "left-right.xlsx")
-urbs.main(filename)
+urbs.build_model(filename)
