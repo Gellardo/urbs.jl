@@ -4,9 +4,10 @@ os:
   - linux
 julia:
   - release
-  - nightly
 notifications:
   email: false
+before_install:
+  - sudo pip install xlrd
 # uncomment the following lines to override the default test script
 #script:
 #  - if [[ -a .git/shallow ]]; then git fetch --unshallow; fi
