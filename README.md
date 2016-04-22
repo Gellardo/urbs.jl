@@ -4,6 +4,13 @@
 
 urbs.jl is a [linear programming](https://en.wikipedia.org/wiki/Linear_programming) optimisation model for distributed energy systems. Its name stems from it's origin as a port of [URBS](https://github.com/tum-ens/urbs).
 
+## Installation
+Urbs can be installed through the Julia package manager:
+
+```julia
+julia> Pkg.clone("https://github.com/Gellardo/urbs.jl.git", "urbs")
+```
+
 ## Copyright
 
 Copyright (C) 2016  Gellardo
