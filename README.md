@@ -1,4 +1,6 @@
-# urbs.jl
+# urbs
+
+[![Build Status](https://travis-ci.org/Gellardo/urbs.jl.svg?branch=master)](https://travis-ci.org/Gellardo/urbs.jl)
 
 urbs.jl is a [linear programming](https://en.wikipedia.org/wiki/Linear_programming) optimisation model for distributed energy systems. Its name stems from it's origin as a port of [URBS](https://github.com/tum-ens/urbs).
 
