@@ -11,6 +11,9 @@ type Process
 	process_type
 	min_prod
 	max_prod
+	cost
+	com_in
+	com_out
 end
 
 function read_xlsheet(file, sheetname)
@@ -20,7 +23,15 @@ function read_xlsheet(file, sheetname)
 		       header = true)
 end
 
-function read_excelfile(filename)
+function append(array, element)
+	if array != []
+		[array; element]
+	else
+		[element]
+	end
+end
+
+function read_excelfile(filename, debug=false)
 	file = openxl(filename)
 
 	commodities = read_xlsheet(file, "Commodity")
@@ -30,62 +41,66 @@ function read_excelfile(filename)
 
 	sites = unique(processes[:, :Site])
 
+	if debug
+		println(commodities)
+		println(processes)
+		println(processCommodity)
+		println(demand)
+	end
+
 	# build an array of Process
 	process_array = []
 	for i in 1:size(processes, 1)
+		# not known yet: cost, com_in, com_out
 		next_process = Process(processes[i, :Site], processes[i, :Process],
-		                       processes[i, :MinOut], processes[i, :MaxOut])
-		if i != 1
-			process_array = [process_array; next_process]
-		else
-			process_array = [next_process]
+		                       processes[i, :MinOut], processes[i, :MaxOut],
+							   0, [], [])
+		process_array = append(process_array, next_process)
+	end
+
+	# add commodities to the processes
+	proc_com_rel = []
+	for i in 1:size(processCommodity, 1)
+		process_ind = find(x -> x.process_type == processCommodity[i, :Process],
+		                   process_array)
+		for i_process in process_ind
+			process = process_array[i_process]
+			commodity_tuple = (processCommodity[i, :Commodity],
+			                   processCommodity[i, :ratio])
+			if processCommodity[i,:Direction] == "out"
+				process.com_out = append(process.com_out, commodity_tuple)
+			else
+				process.com_in = append(process.com_in, commodity_tuple)
+			end
 		end
 	end
 
 	com_array = []
 	for i in 1:size(commodities, 1)
-		next_com = (string(commodities[i, :Site], '.',
-		                   commodities[i, :Commodity]),
-		            commodities[i, :Price])
-		if i != 1
-			com_array = [com_array next_com]
-		else
-			com_array = [next_com]
+		process_ind = find(x -> x.site == commodities[i, :Site],
+		                   process_array)
+		for i_process in process_ind
+			process = process_array[i_process]
+			for i_com in find(x -> x[1] == commodities[i, :Commodity],
+				                    process.com_in)
+				process.cost += process.com_in[i_com][2] * commodities[i, :Price]
+			end
 		end
 	end
-	# Dict "Site.Commodity" => price
-	prices = Dict{AbstractString, Number}(com_array)
 
-	#process - commodity relation
-	proc_com_rel = []
-	for i in 1:size(processCommodity, 1)
-		next_rel = (string(processCommodity[i, :Process], '.',
-				           processCommodity[i, :Commodity], '.',
-						   processCommodity[i, :Direction]),
-				    processCommodity[i, :ratio])
-		if i != 1
-			proc_com_rel = [proc_com_rel next_rel]
-		else
-			proc_com_rel = [next_rel]
-		end
-	end
-	# Dict "Site.Commodity.Direction" => ratio
-	processratio_by_proc_com_dir = Dict{AbstractString, Number}(proc_com_rel)
-
-	sites, prices, process_array, processratio_by_proc_com_dir, demand[:, 2:end]
+	sites, process_array, demand[:, 2:end]
 end
 
 function build_model(filename)
 	# read
-	sites, prices, processes, proc_com, demand = read_excelfile(filename)
+	sites, processes, demand = read_excelfile(filename)
 	timeseries = 1:size(demand, 1)
+	numprocess = 1:size(processes,1)
 
 	println("read data")
 	println(timeseries)
 	println(sites)
-	println(prices)
 	println(processes)
-	println(proc_com)
 	println(demand)
 
 	#build model
