@@ -106,10 +106,29 @@ function build_model(filename)
 	#build model
 	m = Model()
 
-	@defVar(m, cost >= 0)
-	@defVar(m, production[1:size(processes, 1)] >= 0)
+	@defVar(m, cost[timeseries] >= 0)
+	@defVar(m, production[timeseries, numprocess] >= 0)
+	@setObjective(m, Min, sum{cost[t], t = timeseries})
+
+	@addConstraint(m, determine_cost[t = timeseries],
+	               cost[t] == sum{production[t, p] * processes[p].cost,
+	                              p = numprocess})
+	# TODO add max production constraint
+
+	# TODO remove assumption that sites has same ordering as demand
+	@addConstraint(m, meet_demand[t = timeseries, s = 1:size(sites,1)],
+	               demand[t,s] == sum{production[t, p],
+				                      p = numprocess;
+				                      processes[p].site == sites[s]})
 
 	return m
+end
+
+function solve_and_show(model)
+	solve(model)
+	println("Optimal Cost ", sum(getObjectiveValue(model)))
+	println("Optimal Production by timestep and process")
+	println(getValue(getVar(model,:production)))
 end
 
 end # module
