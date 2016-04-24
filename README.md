@@ -11,6 +11,13 @@ Urbs can be installed through the Julia package manager:
 julia> Pkg.clone("https://github.com/Gellardo/urbs.jl.git", "urbs")
 ```
 
+Before any optimization can be done, one also has to install a solver
+for the [JuMP](https://github.com/JuliaOpt/JuMP.jl) package, for example:
+
+```julia
+julia> Pkg.add("GLPKMathProgInterface")
+```
+
 ## Copyright
 
 Copyright (C) 2016  Gellardo
