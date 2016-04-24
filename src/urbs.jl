@@ -91,17 +91,19 @@ function read_excelfile(filename, debug=false)
 	sites, process_array, demand[:, 2:end]
 end
 
-function build_model(filename)
+function build_model(filename, debug=false)
 	# read
 	sites, processes, demand = read_excelfile(filename)
 	timeseries = 1:size(demand, 1)
 	numprocess = 1:size(processes,1)
 
-	println("read data")
-	println(timeseries)
-	println(sites)
-	println(processes)
-	println(demand)
+	if debug
+		println("read data")
+		println(timeseries)
+		println(sites)
+		println(processes)
+		println(demand)
+	end
 
 	#build model
 	m = Model()
@@ -113,20 +115,23 @@ function build_model(filename)
 	@addConstraint(m, determine_cost[t = timeseries],
 	               cost[t] == sum{production[t, p] * processes[p].cost,
 	                              p = numprocess})
-	# TODO add max production constraint
 
-	# TODO remove assumption that sites has same ordering as demand
+	@addConstraint(m, check_max_prod[t = timeseries, p = numprocess],
+	               production[t,p] <= processes[p].max_prod)
+	@addConstraint(m, check_min_prod[t = timeseries, p = numprocess],
+	               production[t,p] >= processes[p].min_prod)
+
 	@addConstraint(m, meet_demand[t = timeseries, s = 1:size(sites,1)],
-	               demand[t,s] == sum{production[t, p],
-				                      p = numprocess;
-				                      processes[p].site == sites[s]})
+	               demand[t, Symbol(sites[s])] ==
+	               sum{production[t, p], p = numprocess;
+				       processes[p].site == sites[s]})
 
 	return m
 end
 
 function solve_and_show(model)
 	solve(model)
-	println("Optimal Cost ", sum(getObjectiveValue(model)))
+	println("Optimal Cost ", getObjectiveValue(model))
 	println("Optimal Production by timestep and process")
 	println(getValue(getVar(model,:production)))
 end
