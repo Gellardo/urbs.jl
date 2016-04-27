@@ -101,8 +101,10 @@ function read_excelfile(filename, debug=false)
 		for i_process in process_ind
 			process = process_array[i_process]
 			for i_com in find(x -> x[1] == commodities[i, :Commodity],
-				                    process.com_in)
-				process.cost_com += process.com_in[i_com][2] * commodities[i, :price]
+			                  process.com_in)
+				if commodities[i, :Type] == "Stock"
+					process.cost_com += process.com_in[i_com][2] * commodities[i, :price]
+				end
 			end
 		end
 	end
@@ -110,18 +112,20 @@ function read_excelfile(filename, debug=false)
 	sites, process_array, demand[:, 2:end]
 end
 
-function build_model(filename, debug=false)
+function build_model(filename; timeseries = 0:0, debug=false)
 	# read
 	sites, processes, demand = read_excelfile(filename)
-	timeseries = 1:size(demand, 1)
+	if timeseries == 0:0
+	    timeseries = 1:size(demand, 1)
+	end
 	numprocess = 1:size(processes,1)
 
 	if debug
-		println("read data")
-		println(timeseries)
-		println(sites)
-		println(processes)
-		println(demand)
+	    println("read data")
+	    println(timeseries)
+	    println(sites)
+	    println(processes)
+	    println(demand)
 	end
 
 	# build model
@@ -157,7 +161,7 @@ function build_model(filename, debug=false)
 
 	# demand constraints
 	@addConstraint(m, meet_demand[t = timeseries, s = 1:size(sites,1)],
-	               demand[t, Symbol(sites[s])] ==
+	               demand[t, Symbol(string(sites[s],".Elec"))] ==
 	               sum{production[t, p], p = numprocess;
 	                   processes[p].site == sites[s]})
 
