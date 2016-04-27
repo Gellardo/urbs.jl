@@ -9,10 +9,23 @@ filename = normpath(Pkg.dir("urbs"), "test", "left-right.xlsx")
 type Process
 	site
 	process_type
-	min_prod
-	max_prod
-	cost
+	"installed capacity at the beginning of the simulation"
+	cap_init
+	"minimal capacity"
+	cap_min
+	"maximal capcity"
+	cap_max
+	"fix cost per unit of installed capacity"
+	cost_fix
+	"variable cost per unit of generated unit of energy without commodities"
+	cost_var
+	"investment cost per unit of additional capacity"
+	cost_inv
+	"transient variable for the commodity cost of one generated unit of energy"
+	cost_com
+	"array of input-commodities"
 	com_in
+	"array of output-commodities"
 	com_out
 end
 
@@ -51,10 +64,16 @@ function read_excelfile(filename, debug=false)
 	# build an array of Process
 	process_array = []
 	for i in 1:size(processes, 1)
-		# not known yet: cost, com_in, com_out
-		next_process = Process(processes[i, :Site], processes[i, :Process],
-		                       processes[i, :MinOut], processes[i, :MaxOut],
-							   0, [], [])
+		# not known yet: cost_com, com_in, com_out
+		next_process = Process(processes[i, :Site],
+		                       processes[i, :Process],
+		                       processes[i, Symbol("inst-cap")],
+		                       processes[i, Symbol("cap-lo")],
+		                       processes[i, Symbol("cap-up")],
+		                       processes[i, Symbol("fix-cost")],
+		                       processes[i, Symbol("var-cost")],
+		                       processes[i, Symbol("inv-cost")],
+		                       0, [], [])
 		process_array = append(process_array, next_process)
 	end
 
@@ -82,8 +101,10 @@ function read_excelfile(filename, debug=false)
 		for i_process in process_ind
 			process = process_array[i_process]
 			for i_com in find(x -> x[1] == commodities[i, :Commodity],
-				                    process.com_in)
-				process.cost += process.com_in[i_com][2] * commodities[i, :Price]
+			                  process.com_in)
+				if commodities[i, :Type] == "Stock"
+					process.cost_com += process.com_in[i_com][2] * commodities[i, :price]
+				end
 			end
 		end
 	end
@@ -91,40 +112,58 @@ function read_excelfile(filename, debug=false)
 	sites, process_array, demand[:, 2:end]
 end
 
-function build_model(filename, debug=false)
+function build_model(filename; timeseries = 0:0, debug=false)
 	# read
 	sites, processes, demand = read_excelfile(filename)
-	timeseries = 1:size(demand, 1)
+	if timeseries == 0:0
+	    timeseries = 1:size(demand, 1)
+	end
 	numprocess = 1:size(processes,1)
 
 	if debug
-		println("read data")
-		println(timeseries)
-		println(sites)
-		println(processes)
-		println(demand)
+	    println("read data")
+	    println(timeseries)
+	    println(sites)
+	    println(processes)
+	    println(demand)
 	end
 
-	#build model
+	# build model
 	m = Model()
 
-	@defVar(m, cost[timeseries] >= 0)
+	@defVar(m, cost >=0)
 	@defVar(m, production[timeseries, numprocess] >= 0)
-	@setObjective(m, Min, sum{cost[t], t = timeseries})
+	@defVar(m, cap_avail[numprocess] >= 0)
+	@setObjective(m, Min, cost)
 
-	@addConstraint(m, determine_cost[t = timeseries],
-	               cost[t] == sum{production[t, p] * processes[p].cost,
-	                              p = numprocess})
+	# cost constraints
+	@addConstraint(m, cost ==
+	               # all commodity costs
+	               sum{production[t, p] * processes[p].cost_com,
+	                   t = timeseries, p = numprocess} +
+	               # investment costs
+	               sum{(cap_avail[p]-processes[p].cap_init) *
+	                   processes[p].cost_inv, p = numprocess} +
+	               # fix costs
+	               sum{cap_avail[p] * processes[p].cost_fix, p = numprocess} +
+	               # variable costs
+	               sum{production[t,p] * processes[p].cost_var,
+	                   t = timeseries, p = numprocess})
 
-	@addConstraint(m, check_max_prod[t = timeseries, p = numprocess],
-	               production[t,p] <= processes[p].max_prod)
-	@addConstraint(m, check_min_prod[t = timeseries, p = numprocess],
-	               production[t,p] >= processes[p].min_prod)
+	# capacity constraints
+	# assume that cap_inst <= cap_min
+	@addConstraint(m, meet_cap_min[p = numprocess],
+	               cap_avail[p] >= processes[p].cap_min)
+	@addConstraint(m, meet_cap_max[p = numprocess],
+	               cap_avail[p] <= processes[p].cap_max)
+	@addConstraint(m, check_cap[t = timeseries, p = numprocess],
+	               production[t,p] <= cap_avail[p])
 
+	# demand constraints
 	@addConstraint(m, meet_demand[t = timeseries, s = 1:size(sites,1)],
-	               demand[t, Symbol(sites[s])] ==
+	               demand[t, Symbol(string(sites[s],".Elec"))] ==
 	               sum{production[t, p], p = numprocess;
-				       processes[p].site == sites[s]})
+	                   processes[p].site == sites[s]})
 
 	return m
 end
