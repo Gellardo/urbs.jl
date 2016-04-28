@@ -21,6 +21,8 @@ type Process
 	cost_var
 	"investment cost per unit of additional capacity"
 	cost_inv
+	"factor to balance long- and short term investments"
+	annuity_factor
 	"transient variable for the commodity cost of one generated unit of energy"
 	cost_com
 	"array of input-commodities"
@@ -44,6 +46,10 @@ function append(array, element)
 	end
 end
 
+function calculate_annuity_factor(n, i)
+	(1 + i)^n * i / ((1 + i)^n - 1)
+end
+
 function read_excelfile(filename, debug=false)
 	file = openxl(filename)
 
@@ -65,6 +71,11 @@ function read_excelfile(filename, debug=false)
 	process_array = []
 	for i in 1:size(processes, 1)
 		# not known yet: cost_com, com_in, com_out
+		annuity_fac = 1
+		if :wacc in names(processes) && :depreciation in names(processes)
+			annuity_fac = calculate_annuity_factor(processes[i, :wacc],
+			                                       processes[i,:depreciation])
+		end
 		next_process = Process(processes[i, :Site],
 		                       processes[i, :Process],
 		                       processes[i, Symbol("inst-cap")],
@@ -73,7 +84,7 @@ function read_excelfile(filename, debug=false)
 		                       processes[i, Symbol("fix-cost")],
 		                       processes[i, Symbol("var-cost")],
 		                       processes[i, Symbol("inv-cost")],
-		                       0, [], [])
+		                       annuity_fac, 0, [], [])
 		process_array = append(process_array, next_process)
 	end
 
@@ -141,9 +152,10 @@ function build_model(filename; timeseries = 0:0, debug=false)
 	               # all commodity costs
 	               sum{production[t, p] * processes[p].cost_com,
 	                   t = timeseries, p = numprocess} +
-	               # investment costs
+	               # investment costs process
 	               sum{(cap_avail[p]-processes[p].cap_init) *
-	                   processes[p].cost_inv, p = numprocess} +
+	                   processes[p].cost_inv * processes[p].annuity_factor,
+	                   p = numprocess} +
 	               # fix costs
 	               sum{cap_avail[p] * processes[p].cost_fix, p = numprocess} +
 	               # variable costs
