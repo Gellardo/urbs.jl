@@ -18,6 +18,9 @@ for the [JuMP](https://github.com/JuliaOpt/JuMP.jl) package, for example:
 julia> Pkg.add("GLPKMathProgInterface")
 ```
 
+In order to read data from Excelfiles, urbs uses ExcelReaders.jl which in turn needs
+pythons `xlrd` package.
+
 ## Copyright
 
 Copyright (C) 2016  Gellardo
