@@ -142,13 +142,13 @@ function build_model(filename; timeseries = 0:0, debug=false)
 	# build model
 	m = Model()
 
-	@defVar(m, cost >=0)
-	@defVar(m, production[timeseries, numprocess] >= 0)
-	@defVar(m, cap_avail[numprocess] >= 0)
-	@setObjective(m, Min, cost)
+	@variable(m, cost >=0)
+	@variable(m, production[timeseries, numprocess] >= 0)
+	@variable(m, cap_avail[numprocess] >= 0)
+	@objective(m, Min, cost)
 
 	# cost constraints
-	@addConstraint(m, cost ==
+	@constraint(m, cost ==
 	               # all commodity costs
 	               sum{production[t, p] * processes[p].cost_com,
 	                   t = timeseries, p = numprocess} +
@@ -164,15 +164,15 @@ function build_model(filename; timeseries = 0:0, debug=false)
 
 	# capacity constraints
 	# assume that cap_inst <= cap_min
-	@addConstraint(m, meet_cap_min[p = numprocess],
+	@constraint(m, meet_cap_min[p = numprocess],
 	               cap_avail[p] >= processes[p].cap_min)
-	@addConstraint(m, meet_cap_max[p = numprocess],
+	@constraint(m, meet_cap_max[p = numprocess],
 	               cap_avail[p] <= processes[p].cap_max)
-	@addConstraint(m, check_cap[t = timeseries, p = numprocess],
+	@constraint(m, check_cap[t = timeseries, p = numprocess],
 	               production[t,p] <= cap_avail[p])
 
 	# demand constraints
-	@addConstraint(m, meet_demand[t = timeseries, s = 1:size(sites,1)],
+	@constraint(m, meet_demand[t = timeseries, s = 1:size(sites,1)],
 	               demand[t, Symbol(string(sites[s],".Elec"))] ==
 	               sum{production[t, p], p = numprocess;
 	                   processes[p].site == sites[s]})
@@ -182,7 +182,7 @@ end
 
 function solve_and_show(model)
 	solve(model)
-	println("Optimal Cost ", getObjectiveValue(model))
+	println("Optimal Cost ", getobjectivevalue(model))
 	println("Optimal Production by timestep and process")
 	println(getValue(getVar(model,:production)))
 end
