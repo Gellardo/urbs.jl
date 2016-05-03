@@ -57,6 +57,7 @@ function read_excelfile(filename, debug=false)
 	processes = read_xlsheet(file, "Process")
 	processCommodity = read_xlsheet(file, "Process-Commodity")
 	demand = read_xlsheet(file, "Demand")
+	natural_commodities = read_xlsheet(file, "SupIm")
 
 	sites = unique(processes[:, :Site])
 
@@ -124,12 +125,12 @@ function read_excelfile(filename, debug=false)
 		end
 	end
 
-	sites, process_array, demand[:, 2:end]
+	sites, process_array, demand[:, 2:end], natural_commodities
 end
 
 function build_model(filename; timeseries = 0:0, debug=false)
 	# read
-	sites, processes, demand = read_excelfile(filename)
+	sites, processes, demand, natural_commodities = read_excelfile(filename)
 	if timeseries == 0:0
 	    timeseries = 1:size(demand, 1)
 	end
