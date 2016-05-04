@@ -23,12 +23,18 @@ type Process
 	cost_inv
 	"factor to balance long- and short term investments"
 	annuity_factor
-	"transient variable for the commodity cost of one generated unit of energy"
-	cost_com
-	"array of input-commodities"
+	"input-commodity"
 	com_in
-	"array of output-commodities"
+	"output-commodity"
 	com_out
+end
+
+type Commodity
+	name
+	"ratio of input energy to resulting energy"
+	ratio
+	"price per MW"
+	price
 end
 
 function read_xlsheet(file, sheetname)
@@ -85,7 +91,9 @@ function read_excelfile(filename, debug=false)
 		                       processes[i, Symbol("fix-cost")],
 		                       processes[i, Symbol("var-cost")],
 		                       processes[i, Symbol("inv-cost")],
-		                       annuity_fac, 0, [], [])
+		                       annuity_fac,
+		                       Commodity("", 0, 0),
+		                       Commodity("", 0, 0))
 		if next_process.cap_min < next_process.cap_init
 			print("warning: installed capacity bigger than minimal capacity")
 			next_process.cap_min = next_process.cap_init
@@ -100,27 +108,25 @@ function read_excelfile(filename, debug=false)
 		                   process_array)
 		for i_process in process_ind
 			process = process_array[i_process]
-			commodity_tuple = (processCommodity[i, :Commodity],
-			                   processCommodity[i, :ratio])
+			commodity = Commodity(processCommodity[i, :Commodity],
+			                      processCommodity[i, :ratio], 0)
 			if processCommodity[i,:Direction] == "out"
-				process.com_out = append(process.com_out, commodity_tuple)
+				process.com_out = commodity
 			else
-				process.com_in = append(process.com_in, commodity_tuple)
+				process.com_in = commodity
 			end
 		end
 	end
 
+	# add prices to input commodities
 	com_array = []
 	for i in 1:size(commodities, 1)
-		process_ind = find(x -> x.site == commodities[i, :Site],
-		                   process_array)
+		process_ind = find(x -> x.site == commodities[i, :Site], process_array)
 		for i_process in process_ind
 			process = process_array[i_process]
-			for i_com in find(x -> x[1] == commodities[i, :Commodity],
-			                  process.com_in)
-				if commodities[i, :Type] == "Stock"
-					process.cost_com += process.com_in[i_com][2] * commodities[i, :price]
-				end
+			if commodities[i, :Type] == "Stock" &&
+			   process.com_in.name == commodities[i, :Commodity]
+				process.com_in.price = commodities[i, :price]
 			end
 		end
 	end
@@ -148,6 +154,7 @@ function build_model(filename; timeseries = 0:0, debug=false)
 	m = Model()
 
 	@variable(m, cost >=0)
+	@variable(m, com_in[timeseries, numprocess] >= 0)
 	@variable(m, production[timeseries, numprocess] >= 0)
 	@variable(m, cap_avail[numprocess] >= 0)
 	@objective(m, Min, cost)
@@ -155,7 +162,7 @@ function build_model(filename; timeseries = 0:0, debug=false)
 	# cost constraints
 	@constraint(m, cost ==
 	               # all commodity costs
-	               sum{production[t, p] * processes[p].cost_com,
+	               sum{com_in[t, p] * processes[p].com_in.price,
 	                   t = timeseries, p = numprocess} +
 	               # investment costs process
 	               sum{(cap_avail[p]-processes[p].cap_init) *
@@ -173,6 +180,10 @@ function build_model(filename; timeseries = 0:0, debug=false)
 	               cap_avail[p] >= processes[p].cap_min)
 	@constraint(m, meet_cap_max[p = numprocess],
 	               cap_avail[p] <= processes[p].cap_max)
+
+	# production constraints
+	@constraint(m, commodity_to_production[t = timeseries, p = numprocess],
+	               com_in[t, p] * processes[p].com_in.ratio == production[t, p])
 	@constraint(m, check_cap[t = timeseries, p = numprocess],
 	               production[t,p] <= cap_avail[p])
 
