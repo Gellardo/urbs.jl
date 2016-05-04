@@ -209,10 +209,86 @@ function build_model(filename; timeseries = 0:0, debug=false)
 end
 
 function solve_and_show(model)
+	sites, processes, demand, natural_commodities = read_excelfile(filename)
 	solve(model)
 	println("Optimal Cost ", getobjectivevalue(model))
 	println("Optimal Production by timestep and process")
-	println(getValue(getVar(model,:production)))
+	production = getvalue(getvariable(model,:production))
+	com_in = getvalue(getvariable(model,Symbol("com_in")))
+	capacities = getvalue(getvariable(model,:cap_avail))
+
+	function printhorizontal(prefix="", line=false)
+		if line
+			for p in 1:size(processes,1) + 1
+				print("----\t")
+			end
+			println()
+		end
+		println(prefix)
+	end
+
+	# nice output tables
+	print("\t")
+	for p in 1:size(processes,1)
+		print(processes[p].site[1:2], '.', processes[p].process_type[1:4], '\t')
+	end
+	println()
+	printhorizontal("inv-cost", true)
+	print("\t")
+	for p in 1:JuMP.size(processes, 1)
+		print((capacities[p] - processes[p].cap_init) * processes[p].cost_inv * processes[p].annuity_factor, '\t')
+	end
+	println()
+
+	printhorizontal("fix-cost")
+	print("\t")
+	for p in 1:JuMP.size(processes, 1)
+		print(capacities[p] * processes[p].cost_fix, '\t')
+	end
+	println()
+
+	printhorizontal("com-cost")
+	print("\t")
+	for p in 1:JuMP.size(processes, 1)
+		sum = 0
+		for t in 1:JuMP.size(production, 2)
+			sum += com_in[t, p] * processes[p].com_in.price
+		end
+		print(sum , '\t')
+	end
+	println()
+
+	printhorizontal("var-cost")
+	print("\t")
+	for p in 1:JuMP.size(processes, 1)
+		sum = 0
+		for t in 1:JuMP.size(production, 2)
+			sum += production[t,p] * processes[p].cost_var
+		end
+		print(sum, '\t')
+	end
+	println()
+
+	printhorizontal("cap", true)
+	print("\t")
+	for i in 1:JuMP.size(capacities, 1)
+		print(capacities[i], '\t')
+	end
+	println()
+
+	printhorizontal("production per time", true)
+	for i in 1:JuMP.size(production, 1)
+		print(i, '\t')
+		for j in 1:JuMP.size(production, 2)
+			print(production[i,j], '\t')
+		end
+		println()
+	end
+	print("sum\t")
+	for p in 1:JuMP.size(production, 2)
+			print(sum(production[:,p]), '\t')
+	end
+
 end
 
 end # module
