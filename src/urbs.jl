@@ -4,6 +4,7 @@ using JuMP
 using ExcelReaders
 using DataFrames
 
+# for convenience
 filename = normpath(Pkg.dir("urbs"), "test", "left-right.xlsx")
 
 type Process
@@ -31,6 +32,8 @@ end
 
 type Commodity
 	name
+	"commodity type, element of {\"Stock, SupIm\"}"
+	com_type
 	"ratio of input energy to resulting energy"
 	ratio
 	"price per MW"
@@ -92,8 +95,8 @@ function read_excelfile(filename, debug=false)
 		                       processes[i, Symbol("var-cost")],
 		                       processes[i, Symbol("inv-cost")],
 		                       annuity_fac,
-		                       Commodity("", 0, 0),
-		                       Commodity("", 0, 0))
+		                       Commodity("", "", 0, 0),
+		                       Commodity("", "", 0, 0))
 		if next_process.cap_min < next_process.cap_init
 			print("warning: installed capacity bigger than minimal capacity")
 			next_process.cap_min = next_process.cap_init
@@ -109,6 +112,7 @@ function read_excelfile(filename, debug=false)
 		for i_process in process_ind
 			process = process_array[i_process]
 			commodity = Commodity(processCommodity[i, :Commodity],
+			                      "",
 			                      processCommodity[i, :ratio], 0)
 			if processCommodity[i,:Direction] == "out"
 				process.com_out = commodity
@@ -124,9 +128,11 @@ function read_excelfile(filename, debug=false)
 		process_ind = find(x -> x.site == commodities[i, :Site], process_array)
 		for i_process in process_ind
 			process = process_array[i_process]
-			if commodities[i, :Type] == "Stock" &&
-			   process.com_in.name == commodities[i, :Commodity]
-				process.com_in.price = commodities[i, :price]
+			if process.com_in.name == commodities[i, :Commodity]
+				process.com_in.com_type = commodities[i, :Type]
+				if commodities[i, :Type] == "Stock"
+					process.com_in.price = commodities[i, :price]
+				end
 			end
 		end
 	end
@@ -186,6 +192,12 @@ function build_model(filename; timeseries = 0:0, debug=false)
 	               com_in[t, p] * processes[p].com_in.ratio == production[t, p])
 	@constraint(m, check_cap[t = timeseries, p = numprocess],
 	               production[t,p] <= cap_avail[p])
+	# for SupIm commodities com_in == available capacity * factor from timeseries
+	@constraint(m, supim_com_in[t = timeseries, p = numprocess;
+	                            processes[p].com_in.com_type == "SupIm"],
+	               com_in[t, p] == cap_avail[p] *
+	               natural_commodities[t, Symbol(string(processes[p].site,
+	                                             '.', processes[p].com_in.name))])
 
 	# demand constraints
 	@constraint(m, meet_demand[t = timeseries, s = 1:size(sites,1)],
