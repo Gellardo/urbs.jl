@@ -147,6 +147,7 @@ function build_model(filename; timeseries = 0:0, debug=false)
 	    timeseries = 1:size(demand, 1)
 	end
 	numprocess = 1:size(processes,1)
+	numsite = 1:size(sites,1)
 
 	if debug
 	    println("read data")
@@ -171,6 +172,13 @@ function build_model(filename; timeseries = 0:0, debug=false)
 	@variable(m, pro_through[timeseries, numprocess] >= 0)
 	@variable(m, cap_avail[numprocess] >= 0)
 
+	# transmission variables
+	@variable(m, trans_cap[timeseries, numsite] >= 0)
+	# indices mean in/out from 2 to 3
+	@variable(m, trans_in[timeseries, numsite, numsite] >= 0)
+	@variable(m, trans_out[timeseries, numsite, numsite] >= 0)
+
+
 	#
 	# Constraints
 	#
@@ -189,8 +197,9 @@ function build_model(filename; timeseries = 0:0, debug=false)
 	               # variable costs
 	               sum{pro_through[t,p] * processes[p].cost_var,
 	                   t = timeseries, p = numprocess})
+			       # TODO add costs for transmission
 
-	# capacity constraints
+	# process constraints
 	# assume that cap_inst <= cap_min
 	@constraint(m, meet_cap_min[p = numprocess],
 	               cap_avail[p] >= processes[p].cap_min)
@@ -211,11 +220,15 @@ function build_model(filename; timeseries = 0:0, debug=false)
 	               natural_commodities[t, Symbol(string(processes[p].site,
 	                                             '.', processes[p].com_in.name))])
 
+	# transmission constraints
+	# TODO
+
 	# demand constraints
 	@constraint(m, meet_demand[t = timeseries, s = 1:size(sites,1)],
 	               demand[t, Symbol(string(sites[s],".Elec"))] ==
 	               sum{com_out[t, p], p = numprocess;
 	                   processes[p].site == sites[s]})
+					   # TODO add trans_in/out
 
 	return m
 end
