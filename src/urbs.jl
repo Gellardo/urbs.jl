@@ -40,11 +40,46 @@ type Commodity
 	price
 end
 
-function read_xlsheet(file, sheetname)
+type transmission
+	"site on the \"left\" end of the transmission line"
+	left
+	"site on the \"right\" end of the transmission line"
+	right
+	"installed capacity at the beginning of the simulation"
+	cap_init
+	"minimal capacity"
+	cap_min
+	"maximal capcity"
+	cap_max
+	"fix cost per unit of installed capacity"
+	cost_fix
+	"variable cost per unit of generated unit of energy without commodities"
+	cost_var
+	"investment cost per unit of additional capacity"
+	cost_inv
+	"factor to balance long- and short term investments"
+	annuity_factor
+	"efficiency = E_out/E_in"
+	efficiency
+end
+
+function read_xlsheet(file, sheetname; strict=true)
+	try
 		sheet = file.workbook[:sheet_by_name](sheetname)
 		max_col = 'A' + sheet[:ncols] - 1
 		readxl(DataFrame, file, string(sheetname, "!A1:", max_col, sheet[:nrows]),
 		       header = true)
+	catch XLRDError
+		if !strict
+			print("file ", file.filename, " does not contain sheet \"",
+			      sheetname, "\"\n")
+			return DataFrame()
+		else
+			throw(ErrorException(string("file ", file.filename,
+			                            " does not contain sheet \"",
+			                            sheetname, "\"\n")))
+		end
+	end
 end
 
 function append(array, element)
@@ -137,12 +172,33 @@ function read_excelfile(filename, debug=false)
 		end
 	end
 
-	sites, process_array, demand[:, 2:end], natural_commodities
+	transmissions = read_xlsheet(file, "Transmission"; strict=false)
+	trans_array = []
+	for trans in 1:size(transmissions,1)
+		annuity_fac = 1
+		if :wacc in names(processes) && :depreciation in names(processes)
+			annuity_fac = calculate_annuity_factor(transmissions[trans, :wacc],
+			                                       transmissions[trans, :depreciation])
+		end
+		next_trans = Transmission(transmissions[trans, Symbol("Site In")],
+		                          transmissions[trans, Symbol("Site Out")],
+		                          transmissions[trans, Symbol("inst-cap")],
+		                          transmissions[trans, Symbol("cap-lo")],
+		                          transmissions[trans, Symbol("cap-up")],
+		                          transmissions[trans, Symbol("fix-cost")],
+		                          transmissions[trans, Symbol("var-cost")],
+		                          transmissions[trans, Symbol("inv-cost")],
+		                          annuity_factor,
+		                          transmissions[trans, Symbol("eff")])
+		trans_array = append(trans_array, next_trans)
+	end
+
+	sites, process_array, trans_array, demand[:, 2:end], natural_commodities
 end
 
 function build_model(filename; timeseries = 0:0, debug=false)
 	# read
-	sites, processes, demand, natural_commodities = read_excelfile(filename)
+	sites, processes, transmissions, demand, natural_commodities = read_excelfile(filename)
 	if timeseries == 0:0
 	    timeseries = 1:size(demand, 1)
 	end
