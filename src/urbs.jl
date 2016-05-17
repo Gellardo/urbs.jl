@@ -159,11 +159,21 @@ function build_model(filename; timeseries = 0:0, debug=false)
 	# build model
 	m = Model()
 
+	#
+	# Variables
+	#
 	@variable(m, cost >=0)
-	@variable(m, com_in[timeseries, numprocess] >= 0)
-	@variable(m, production[timeseries, numprocess] >= 0)
-	@variable(m, cap_avail[numprocess] >= 0)
 	@objective(m, Min, cost)
+
+	# process variables
+	@variable(m, com_in[timeseries, numprocess] >= 0)
+	@variable(m, com_out[timeseries, numprocess] >= 0)
+	@variable(m, pro_through[timeseries, numprocess] >= 0)
+	@variable(m, cap_avail[numprocess] >= 0)
+
+	#
+	# Constraints
+	#
 
 	# cost constraints
 	@constraint(m, cost ==
@@ -177,7 +187,7 @@ function build_model(filename; timeseries = 0:0, debug=false)
 	               # fix costs
 	               sum{cap_avail[p] * processes[p].cost_fix, p = numprocess} +
 	               # variable costs
-	               sum{production[t,p] * processes[p].cost_var,
+	               sum{pro_through[t,p] * processes[p].cost_var,
 	                   t = timeseries, p = numprocess})
 
 	# capacity constraints
@@ -188,10 +198,12 @@ function build_model(filename; timeseries = 0:0, debug=false)
 	               cap_avail[p] <= processes[p].cap_max)
 
 	# production constraints
-	@constraint(m, commodity_to_production[t = timeseries, p = numprocess],
-	               com_in[t, p] * processes[p].com_in.ratio == production[t, p])
+	@constraint(m, commodity_in_to_through[t = timeseries, p = numprocess],
+	               com_in[t, p] == pro_through[t, p] * processes[p].com_in.ratio)
+	@constraint(m, commodity_out_to_through[t = timeseries, p = numprocess],
+	               com_out[t, p] == pro_through[t, p] * processes[p].com_out.ratio)
 	@constraint(m, check_cap[t = timeseries, p = numprocess],
-	               production[t,p] <= cap_avail[p])
+	               pro_through[t,p] <= cap_avail[p])
 	# for SupIm commodities com_in == available capacity * factor from timeseries
 	@constraint(m, supim_com_in[t = timeseries, p = numprocess;
 	                            processes[p].com_in.com_type == "SupIm"],
@@ -202,7 +214,7 @@ function build_model(filename; timeseries = 0:0, debug=false)
 	# demand constraints
 	@constraint(m, meet_demand[t = timeseries, s = 1:size(sites,1)],
 	               demand[t, Symbol(string(sites[s],".Elec"))] ==
-	               sum{production[t, p], p = numprocess;
+	               sum{com_out[t, p], p = numprocess;
 	                   processes[p].site == sites[s]})
 
 	return m
@@ -213,7 +225,7 @@ function solve_and_show(model)
 	solve(model)
 	println("Optimal Cost ", getobjectivevalue(model))
 	println("Optimal Production by timestep and process")
-	production = getvalue(getvariable(model,:production))
+	production = getvalue(getvariable(model,:pro_through))
 	com_in = getvalue(getvariable(model,Symbol("com_in")))
 	capacities = getvalue(getvariable(model,:cap_avail))
 
