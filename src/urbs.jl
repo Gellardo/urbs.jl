@@ -190,6 +190,10 @@ function read_excelfile(filename, debug=false)
 		                          transmissions[trans, Symbol("inv-cost")],
 		                          annuity_factor,
 		                          transmissions[trans, Symbol("eff")])
+		if next_trans.cap_min < next_trans.cap_init
+			print("warning: cap-lo smaller than installed capacity")
+			next_trans.cap_min = next_trans.cap_init
+		end
 		trans_array = append(trans_array, next_trans)
 	end
 
@@ -204,7 +208,7 @@ function build_model(filename; timeseries = 0:0, debug=false)
 	end
 	numprocess = 1:size(processes,1)
 	numsite = 1:size(sites,1)
-	numtrans = 1:size(trans,1)
+	numtrans = 1:size(transmissions,1)
 
 	if debug
 	    println("read data")
