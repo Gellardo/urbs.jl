@@ -204,6 +204,7 @@ function build_model(filename; timeseries = 0:0, debug=false)
 	end
 	numprocess = 1:size(processes,1)
 	numsite = 1:size(sites,1)
+	numtrans = 1:size(trans,1)
 
 	if debug
 	    println("read data")
@@ -219,7 +220,7 @@ function build_model(filename; timeseries = 0:0, debug=false)
 	#
 	# Variables
 	#
-	@variable(m, cost >=0)
+	@variable(m, cost)
 	@objective(m, Min, cost)
 
 	# process variables
@@ -229,10 +230,10 @@ function build_model(filename; timeseries = 0:0, debug=false)
 	@variable(m, cap_avail[numprocess] >= 0)
 
 	# transmission variables
-	@variable(m, trans_cap[timeseries, numsite] >= 0)
+	@variable(m, trans_cap[numtrans] >= 0)
 	# indices mean in/out from 2 to 3
-	@variable(m, trans_in[timeseries, numsite, numsite] >= 0)
-	@variable(m, trans_out[timeseries, numsite, numsite] >= 0)
+	@variable(m, trans_in[timeseries, 2 * numtrans] >= 0)
+	@variable(m, trans_out[timeseries, 2 * numtrans] >= 0)
 
 
 	#
@@ -277,7 +278,11 @@ function build_model(filename; timeseries = 0:0, debug=false)
 	                                             '.', processes[p].com_in.name))])
 
 	# transmission constraints
-	# TODO
+	@constraint(m, meet_trans_cap_min[tr = numtrans],
+	               transmissions[tr].cap_min <= trans_cap[tr])
+	@constraint(m, meet_trans_cap_max[tr = numtrans],
+	               transmissions[tr].cap_max >= trans_cap[tr])
+	# TODO handle left -> right *AND* right -> left
 
 	# demand constraints
 	@constraint(m, meet_demand[t = timeseries, s = 1:size(sites,1)],
