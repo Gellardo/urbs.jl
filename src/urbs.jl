@@ -13,7 +13,7 @@ type Process
 	cap_init
 	"minimal capacity"
 	cap_min
-	"maximal capcity"
+	"maximal capacity"
 	cap_max
 	"fix cost per unit of installed capacity"
 	cost_fix
@@ -85,6 +85,10 @@ function read_excelfile(filename, debug=false)
 		                       processes[i, Symbol("var-cost")],
 		                       processes[i, Symbol("inv-cost")],
 		                       annuity_fac, 0, [], [])
+		if next_process.cap_min < next_process.cap_init
+			print("warning: installed capacity bigger than minimal capacity")
+			next_process.cap_min = next_process.cap_init
+		end
 		process_array = append(process_array, next_process)
 	end
 
