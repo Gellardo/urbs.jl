@@ -40,7 +40,7 @@ type Commodity
 	price
 end
 
-type transmission
+type Transmission
 	"site on the \"left\" end of the transmission line"
 	left
 	"site on the \"right\" end of the transmission line"
@@ -188,12 +188,18 @@ function read_excelfile(filename, debug=false)
 		                          transmissions[trans, Symbol("fix-cost")],
 		                          transmissions[trans, Symbol("var-cost")],
 		                          transmissions[trans, Symbol("inv-cost")],
-		                          annuity_factor,
+		                          annuity_fac,
 		                          transmissions[trans, Symbol("eff")])
 		if next_trans.cap_min < next_trans.cap_init
 			print("warning: cap-lo smaller than installed capacity")
 			next_trans.cap_min = next_trans.cap_init
 		end
+		trans_array = append(trans_array, next_trans)
+		# add the reverse way
+		next_trans = deepcopy(next_trans)
+		tmp = next_trans.left
+		next_trans.left = next_trans.right
+		next_trans.right = tmp
 		trans_array = append(trans_array, next_trans)
 	end
 
@@ -216,6 +222,7 @@ function build_model(filename; timeseries = 0:0, debug=false)
 	    println(sites)
 	    println(processes)
 	    println(demand)
+	    println(transmissions)
 	end
 
 	# build model
@@ -235,9 +242,9 @@ function build_model(filename; timeseries = 0:0, debug=false)
 
 	# transmission variables
 	@variable(m, trans_cap[numtrans] >= 0)
-	# indices mean in/out from 2 to 3
-	@variable(m, trans_in[timeseries, 2 * numtrans] >= 0)
-	@variable(m, trans_out[timeseries, 2 * numtrans] >= 0)
+	# assignment: each transmission consists of two directions i and i+1
+	@variable(m, trans_in[timeseries, numtrans] >= 0)
+	@variable(m, trans_out[timeseries, numtrans] >= 0)
 
 
 	#
@@ -257,8 +264,15 @@ function build_model(filename; timeseries = 0:0, debug=false)
 	               sum{cap_avail[p] * processes[p].cost_fix, p = numprocess} +
 	               # variable costs
 	               sum{pro_through[t,p] * processes[p].cost_var,
-	                   t = timeseries, p = numprocess})
-			       # TODO add costs for transmission
+	                   t = timeseries, p = numprocess} +
+
+	               # transmission costs
+	               sum{(trans_cap[tr] - transmissions[tr].cap_init) *
+	                   transmissions[tr].cost_inv * transmissions[tr].annuity_factor,
+	                   tr = numtrans} +
+	               sum{trans_cap[tr] * transmissions[tr].cost_fix, tr = numtrans} +
+	               sum{trans_in[t,tr] * transmissions[tr].cost_var,
+	                   t = timeseries, tr = numtrans})
 
 	# process constraints
 	# assume that cap_inst <= cap_min
@@ -282,18 +296,25 @@ function build_model(filename; timeseries = 0:0, debug=false)
 	                                             '.', processes[p].com_in.name))])
 
 	# transmission constraints
-	@constraint(m, meet_trans_cap_min[tr = numtrans],
-	               transmissions[tr].cap_min <= trans_cap[tr])
-	@constraint(m, meet_trans_cap_max[tr = numtrans],
-	               transmissions[tr].cap_max >= trans_cap[tr])
-	# TODO handle left -> right *AND* right -> left
+	@constraint(m, meet_trans_cap_bounds[tr = numtrans],
+	               transmissions[tr].cap_min <= trans_cap[tr] <= transmissions[tr].cap_max)
+	@constraint(m, ensure_symmetry[tr = numtrans; tr%2 == 0],
+	               trans_cap[tr-1] == trans_cap[tr])
+
+	@constraint(m, check_trans_cap[t = timeseries, tr = numtrans],
+	               trans_in[t, tr] <= trans_cap[tr])
+	@constraint(m, out_commidity[t = timeseries, tr = numtrans],
+	               trans_out[t, tr] == trans_in[t, tr] * transmissions[tr].efficiency)
 
 	# demand constraints
 	@constraint(m, meet_demand[t = timeseries, s = 1:size(sites,1)],
 	               demand[t, Symbol(string(sites[s],".Elec"))] ==
 	               sum{com_out[t, p], p = numprocess;
-	                   processes[p].site == sites[s]})
-					   # TODO add trans_in/out
+	                   processes[p].site == sites[s]} +
+	               sum{trans_out[t, tr], tr = numtrans;
+	                   transmissions[tr].right == sites[s]} -
+	               sum{trans_in[t, tr], tr = numtrans;
+	                   transmissions[tr].left == sites[s]})
 
 	return m
 end
