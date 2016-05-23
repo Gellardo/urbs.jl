@@ -4,6 +4,7 @@ using JuMP
 using ExcelReaders
 using DataFrames
 
+# for convenience
 filename = normpath(Pkg.dir("urbs"), "test", "left-right.xlsx")
 
 type Process
@@ -23,12 +24,20 @@ type Process
 	cost_inv
 	"factor to balance long- and short term investments"
 	annuity_factor
-	"transient variable for the commodity cost of one generated unit of energy"
-	cost_com
-	"array of input-commodities"
+	"input-commodity"
 	com_in
-	"array of output-commodities"
+	"output-commodity"
 	com_out
+end
+
+type Commodity
+	name
+	"commodity type, element of {\"Stock, SupIm\"}"
+	com_type
+	"ratio of input energy to resulting energy"
+	ratio
+	"price per MW"
+	price
 end
 
 function read_xlsheet(file, sheetname)
@@ -57,6 +66,7 @@ function read_excelfile(filename, debug=false)
 	processes = read_xlsheet(file, "Process")
 	processCommodity = read_xlsheet(file, "Process-Commodity")
 	demand = read_xlsheet(file, "Demand")
+	natural_commodities = read_xlsheet(file, "SupIm")
 
 	sites = unique(processes[:, :Site])
 
@@ -84,7 +94,9 @@ function read_excelfile(filename, debug=false)
 		                       processes[i, Symbol("fix-cost")],
 		                       processes[i, Symbol("var-cost")],
 		                       processes[i, Symbol("inv-cost")],
-		                       annuity_fac, 0, [], [])
+		                       annuity_fac,
+		                       Commodity("", "", 0, 0),
+		                       Commodity("", "", 0, 0))
 		if next_process.cap_min < next_process.cap_init
 			print("warning: installed capacity bigger than minimal capacity")
 			next_process.cap_min = next_process.cap_init
@@ -99,37 +111,38 @@ function read_excelfile(filename, debug=false)
 		                   process_array)
 		for i_process in process_ind
 			process = process_array[i_process]
-			commodity_tuple = (processCommodity[i, :Commodity],
-			                   processCommodity[i, :ratio])
+			commodity = Commodity(processCommodity[i, :Commodity],
+			                      "",
+			                      processCommodity[i, :ratio], 0)
 			if processCommodity[i,:Direction] == "out"
-				process.com_out = append(process.com_out, commodity_tuple)
+				process.com_out = commodity
 			else
-				process.com_in = append(process.com_in, commodity_tuple)
+				process.com_in = commodity
 			end
 		end
 	end
 
+	# add prices to input commodities
 	com_array = []
 	for i in 1:size(commodities, 1)
-		process_ind = find(x -> x.site == commodities[i, :Site],
-		                   process_array)
+		process_ind = find(x -> x.site == commodities[i, :Site], process_array)
 		for i_process in process_ind
 			process = process_array[i_process]
-			for i_com in find(x -> x[1] == commodities[i, :Commodity],
-			                  process.com_in)
+			if process.com_in.name == commodities[i, :Commodity]
+				process.com_in.com_type = commodities[i, :Type]
 				if commodities[i, :Type] == "Stock"
-					process.cost_com += process.com_in[i_com][2] * commodities[i, :price]
+					process.com_in.price = commodities[i, :price]
 				end
 			end
 		end
 	end
 
-	sites, process_array, demand[:, 2:end]
+	sites, process_array, demand[:, 2:end], natural_commodities
 end
 
 function build_model(filename; timeseries = 0:0, debug=false)
 	# read
-	sites, processes, demand = read_excelfile(filename)
+	sites, processes, demand, natural_commodities = read_excelfile(filename)
 	if timeseries == 0:0
 	    timeseries = 1:size(demand, 1)
 	end
@@ -146,15 +159,26 @@ function build_model(filename; timeseries = 0:0, debug=false)
 	# build model
 	m = Model()
 
+	#
+	# Variables
+	#
 	@variable(m, cost >=0)
-	@variable(m, production[timeseries, numprocess] >= 0)
-	@variable(m, cap_avail[numprocess] >= 0)
 	@objective(m, Min, cost)
+
+	# process variables
+	@variable(m, com_in[timeseries, numprocess] >= 0)
+	@variable(m, com_out[timeseries, numprocess] >= 0)
+	@variable(m, pro_through[timeseries, numprocess] >= 0)
+	@variable(m, cap_avail[numprocess] >= 0)
+
+	#
+	# Constraints
+	#
 
 	# cost constraints
 	@constraint(m, cost ==
 	               # all commodity costs
-	               sum{production[t, p] * processes[p].cost_com,
+	               sum{com_in[t, p] * processes[p].com_in.price,
 	                   t = timeseries, p = numprocess} +
 	               # investment costs process
 	               sum{(cap_avail[p]-processes[p].cap_init) *
@@ -163,7 +187,7 @@ function build_model(filename; timeseries = 0:0, debug=false)
 	               # fix costs
 	               sum{cap_avail[p] * processes[p].cost_fix, p = numprocess} +
 	               # variable costs
-	               sum{production[t,p] * processes[p].cost_var,
+	               sum{pro_through[t,p] * processes[p].cost_var,
 	                   t = timeseries, p = numprocess})
 
 	# capacity constraints
@@ -172,23 +196,111 @@ function build_model(filename; timeseries = 0:0, debug=false)
 	               cap_avail[p] >= processes[p].cap_min)
 	@constraint(m, meet_cap_max[p = numprocess],
 	               cap_avail[p] <= processes[p].cap_max)
+
+	# production constraints
+	@constraint(m, commodity_in_to_through[t = timeseries, p = numprocess],
+	               com_in[t, p] == pro_through[t, p] * processes[p].com_in.ratio)
+	@constraint(m, commodity_out_to_through[t = timeseries, p = numprocess],
+	               com_out[t, p] == pro_through[t, p] * processes[p].com_out.ratio)
 	@constraint(m, check_cap[t = timeseries, p = numprocess],
-	               production[t,p] <= cap_avail[p])
+	               pro_through[t,p] <= cap_avail[p])
+	# for SupIm commodities com_in == available capacity * factor from timeseries
+	@constraint(m, supim_com_in[t = timeseries, p = numprocess;
+	                            processes[p].com_in.com_type == "SupIm"],
+	               com_in[t, p] == cap_avail[p] *
+	               natural_commodities[t, Symbol(string(processes[p].site,
+	                                             '.', processes[p].com_in.name))])
 
 	# demand constraints
 	@constraint(m, meet_demand[t = timeseries, s = 1:size(sites,1)],
 	               demand[t, Symbol(string(sites[s],".Elec"))] ==
-	               sum{production[t, p], p = numprocess;
+	               sum{com_out[t, p], p = numprocess;
 	                   processes[p].site == sites[s]})
 
 	return m
 end
 
 function solve_and_show(model)
+	sites, processes, demand, natural_commodities = read_excelfile(filename)
 	solve(model)
 	println("Optimal Cost ", getobjectivevalue(model))
 	println("Optimal Production by timestep and process")
-	println(getValue(getVar(model,:production)))
+	production = getvalue(getvariable(model,:pro_through))
+	com_in = getvalue(getvariable(model,Symbol("com_in")))
+	capacities = getvalue(getvariable(model,:cap_avail))
+
+	function printhorizontal(prefix="", line=false)
+		if line
+			for p in 1:size(processes,1) + 1
+				print("----\t")
+			end
+			println()
+		end
+		println(prefix)
+	end
+
+	# nice output tables
+	print("\t")
+	for p in 1:size(processes,1)
+		print(processes[p].site[1:2], '.', processes[p].process_type[1:4], '\t')
+	end
+	println()
+	printhorizontal("inv-cost", true)
+	print("\t")
+	for p in 1:JuMP.size(processes, 1)
+		print((capacities[p] - processes[p].cap_init) * processes[p].cost_inv * processes[p].annuity_factor, '\t')
+	end
+	println()
+
+	printhorizontal("fix-cost")
+	print("\t")
+	for p in 1:JuMP.size(processes, 1)
+		print(capacities[p] * processes[p].cost_fix, '\t')
+	end
+	println()
+
+	printhorizontal("com-cost")
+	print("\t")
+	for p in 1:JuMP.size(processes, 1)
+		sum = 0
+		for t in 1:JuMP.size(production, 2)
+			sum += com_in[t, p] * processes[p].com_in.price
+		end
+		print(sum , '\t')
+	end
+	println()
+
+	printhorizontal("var-cost")
+	print("\t")
+	for p in 1:JuMP.size(processes, 1)
+		sum = 0
+		for t in 1:JuMP.size(production, 2)
+			sum += production[t,p] * processes[p].cost_var
+		end
+		print(sum, '\t')
+	end
+	println()
+
+	printhorizontal("cap", true)
+	print("\t")
+	for i in 1:JuMP.size(capacities, 1)
+		print(capacities[i], '\t')
+	end
+	println()
+
+	printhorizontal("production per time", true)
+	for i in 1:JuMP.size(production, 1)
+		print(i, '\t')
+		for j in 1:JuMP.size(production, 2)
+			print(production[i,j], '\t')
+		end
+		println()
+	end
+	print("sum\t")
+	for p in 1:JuMP.size(production, 2)
+			print(sum(production[:,p]), '\t')
+	end
+
 end
 
 end # module

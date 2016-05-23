@@ -8,4 +8,4 @@ using JuMP
 filename = normpath(Pkg.dir("urbs"),"test", "left-right.xlsx")
 m = urbs.build_model(filename)
 solve(m)
-@test 22655 == getobjectivevalue(m)
+@test 687 == getobjectivevalue(m)
