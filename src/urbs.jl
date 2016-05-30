@@ -148,6 +148,12 @@ function build_model(filename; timeseries = 0:0, debug=false)
 	end
 	numprocess = 1:size(processes,1)
 
+	# weight scales costs from length of simulation to a full year, scaling variable costs to annual
+	# TODO add length of timestep from excelfile, check why it is always used * dt (except 1015)
+	dt = 1
+	weight = 8760 / (length(timeseries) * dt)
+	weight = 1
+
 	if debug
 	    println("read data")
 	    println(timeseries)
@@ -179,7 +185,7 @@ function build_model(filename; timeseries = 0:0, debug=false)
 	@constraint(m, cost ==
 	               # all commodity costs
 	               sum{com_in[t, p] * processes[p].com_in.price,
-	                   t = timeseries, p = numprocess} +
+	                   t = timeseries, p = numprocess} * weight * dt +
 	               # investment costs process
 	               sum{(cap_avail[p]-processes[p].cap_init) *
 	                   processes[p].cost_inv * processes[p].annuity_factor,
@@ -188,7 +194,7 @@ function build_model(filename; timeseries = 0:0, debug=false)
 	               sum{cap_avail[p] * processes[p].cost_fix, p = numprocess} +
 	               # variable costs
 	               sum{pro_through[t,p] * processes[p].cost_var,
-	                   t = timeseries, p = numprocess})
+	                   t = timeseries, p = numprocess} * weight * dt)
 
 	# capacity constraints
 	# assume that cap_inst <= cap_min
