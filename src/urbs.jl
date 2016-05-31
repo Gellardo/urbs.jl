@@ -320,13 +320,14 @@ function build_model(filename; timeseries = 0:0, debug=false)
 end
 
 function solve_and_show(model)
-	sites, processes, demand, natural_commodities = read_excelfile(filename)
+	sites, processes, transmissions, demand, natural_commodities = read_excelfile(filename)
 	solve(model)
 	println("Optimal Cost ", getobjectivevalue(model))
 	println("Optimal Production by timestep and process")
 	production = getvalue(getvariable(model,:pro_through))
-	com_in = getvalue(getvariable(model,Symbol("com_in")))
+	com_in = getvalue(getvariable(model,:com_in))
 	capacities = getvalue(getvariable(model,:cap_avail))
+	trans_in = getvalue(getvariable(model,:trans_in))
 
 	function printhorizontal(prefix="", line=false)
 		if line
@@ -347,14 +348,14 @@ function solve_and_show(model)
 	printhorizontal("inv-cost", true)
 	print("\t")
 	for p in 1:JuMP.size(processes, 1)
-		print((capacities[p] - processes[p].cap_init) * processes[p].cost_inv * processes[p].annuity_factor, '\t')
+		@printf("%.3f\t", (capacities[p] - processes[p].cap_init) * processes[p].cost_inv * processes[p].annuity_factor)
 	end
 	println()
 
 	printhorizontal("fix-cost")
 	print("\t")
 	for p in 1:JuMP.size(processes, 1)
-		print(capacities[p] * processes[p].cost_fix, '\t')
+		@printf("%.3f\t", capacities[p] * processes[p].cost_fix)
 	end
 	println()
 
@@ -365,7 +366,7 @@ function solve_and_show(model)
 		for t in 1:JuMP.size(production, 2)
 			sum += com_in[t, p] * processes[p].com_in.price
 		end
-		print(sum , '\t')
+		@printf("%.3f\t", sum)
 	end
 	println()
 
@@ -376,14 +377,14 @@ function solve_and_show(model)
 		for t in 1:JuMP.size(production, 2)
 			sum += production[t,p] * processes[p].cost_var
 		end
-		print(sum, '\t')
+		@printf("%.3f\t", sum)
 	end
 	println()
 
 	printhorizontal("cap", true)
 	print("\t")
 	for i in 1:JuMP.size(capacities, 1)
-		print(capacities[i], '\t')
+		@printf("%.3f\t", capacities[i])
 	end
 	println()
 
@@ -391,14 +392,35 @@ function solve_and_show(model)
 	for i in 1:JuMP.size(production, 1)
 		print(i, '\t')
 		for j in 1:JuMP.size(production, 2)
-			print(production[i,j], '\t')
+			@printf("%.3f\t", production[i,j])
 		end
 		println()
 	end
 	print("sum\t")
 	for p in 1:JuMP.size(production, 2)
-			print(sum(production[:,p]), '\t')
+		@printf("%.3f\t", sum(production[:,p]))
 	end
+	println()
+
+	printhorizontal("transmissions", true)
+	print('\t')
+	for tr in 1:size(transmissions,1)
+		print(transmissions[tr].left[1:2], "->", transmissions[tr].right[1:2], '\t')
+	end
+	println()
+
+	for t in 1:JuMP.size(trans_in, 1)
+		print(t, '\t')
+		for tr in 1:JuMP.size(trans_in, 2)
+			@printf("%.3f\t", trans_in[t,tr])
+		end
+		println()
+	end
+	print("sum\t")
+	for tr in 1:JuMP.size(trans_in, 2)
+		@printf("%.3f\t", sum(trans_in[:,tr]))
+	end
+	println()
 
 end
 
