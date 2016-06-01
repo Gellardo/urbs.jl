@@ -194,6 +194,8 @@ function read_excelfile(filename, debug=false)
 			print("warning: cap-lo smaller than installed capacity")
 			next_trans.cap_min = next_trans.cap_init
 		end
+		next_trans.cost_inv *= 0.5
+		next_trans.cost_fix *= 0.5
 		trans_array = append(trans_array, next_trans)
 		# add the reverse way
 		next_trans = deepcopy(next_trans)
