@@ -40,11 +40,46 @@ type Commodity
 	price
 end
 
-function read_xlsheet(file, sheetname)
+type Transmission
+	"site on the \"left\" end of the transmission line"
+	left
+	"site on the \"right\" end of the transmission line"
+	right
+	"installed capacity at the beginning of the simulation"
+	cap_init
+	"minimal capacity"
+	cap_min
+	"maximal capcity"
+	cap_max
+	"fix cost per unit of installed capacity"
+	cost_fix
+	"variable cost per unit of generated unit of energy without commodities"
+	cost_var
+	"investment cost per unit of additional capacity"
+	cost_inv
+	"factor to balance long- and short term investments"
+	annuity_factor
+	"efficiency = E_out/E_in"
+	efficiency
+end
+
+function read_xlsheet(file, sheetname; strict=true)
+	try
 		sheet = file.workbook[:sheet_by_name](sheetname)
 		max_col = 'A' + sheet[:ncols] - 1
 		readxl(DataFrame, file, string(sheetname, "!A1:", max_col, sheet[:nrows]),
 		       header = true)
+	catch XLRDError
+		if !strict
+			print("file ", file.filename, " does not contain sheet \"",
+			      sheetname, "\"\n")
+			return DataFrame()
+		else
+			throw(ErrorException(string("file ", file.filename,
+			                            " does not contain sheet \"",
+			                            sheetname, "\"\n")))
+		end
+	end
 end
 
 function append(array, element)
@@ -137,16 +172,51 @@ function read_excelfile(filename, debug=false)
 		end
 	end
 
-	sites, process_array, demand[:, 2:end], natural_commodities
+	transmissions = read_xlsheet(file, "Transmission"; strict=false)
+	trans_array = []
+	for trans in 1:size(transmissions,1)
+		annuity_fac = 1
+		if :wacc in names(processes) && :depreciation in names(processes)
+			annuity_fac = calculate_annuity_factor(transmissions[trans, :wacc],
+			                                       transmissions[trans, :depreciation])
+		end
+		next_trans = Transmission(transmissions[trans, Symbol("Site In")],
+		                          transmissions[trans, Symbol("Site Out")],
+		                          transmissions[trans, Symbol("inst-cap")],
+		                          transmissions[trans, Symbol("cap-lo")],
+		                          transmissions[trans, Symbol("cap-up")],
+		                          transmissions[trans, Symbol("fix-cost")],
+		                          transmissions[trans, Symbol("var-cost")],
+		                          transmissions[trans, Symbol("inv-cost")],
+		                          annuity_fac,
+		                          transmissions[trans, Symbol("eff")])
+		if next_trans.cap_min < next_trans.cap_init
+			print("warning: cap-lo smaller than installed capacity")
+			next_trans.cap_min = next_trans.cap_init
+		end
+		next_trans.cost_inv *= 0.5
+		next_trans.cost_fix *= 0.5
+		trans_array = append(trans_array, next_trans)
+		# add the reverse way
+		next_trans = deepcopy(next_trans)
+		tmp = next_trans.left
+		next_trans.left = next_trans.right
+		next_trans.right = tmp
+		trans_array = append(trans_array, next_trans)
+	end
+
+	sites, process_array, trans_array, demand[:, 2:end], natural_commodities
 end
 
 function build_model(filename; timeseries = 0:0, debug=false)
 	# read
-	sites, processes, demand, natural_commodities = read_excelfile(filename)
+	sites, processes, transmissions, demand, natural_commodities = read_excelfile(filename)
 	if timeseries == 0:0
 	    timeseries = 1:size(demand, 1)
 	end
 	numprocess = 1:size(processes,1)
+	numsite = 1:size(sites,1)
+	numtrans = 1:size(transmissions,1)
 
 	if debug
 	    println("read data")
@@ -154,6 +224,7 @@ function build_model(filename; timeseries = 0:0, debug=false)
 	    println(sites)
 	    println(processes)
 	    println(demand)
+	    println(transmissions)
 	end
 
 	# build model
@@ -162,7 +233,7 @@ function build_model(filename; timeseries = 0:0, debug=false)
 	#
 	# Variables
 	#
-	@variable(m, cost >=0)
+	@variable(m, cost)
 	@objective(m, Min, cost)
 
 	# process variables
@@ -170,6 +241,13 @@ function build_model(filename; timeseries = 0:0, debug=false)
 	@variable(m, com_out[timeseries, numprocess] >= 0)
 	@variable(m, pro_through[timeseries, numprocess] >= 0)
 	@variable(m, cap_avail[numprocess] >= 0)
+
+	# transmission variables
+	@variable(m, trans_cap[numtrans] >= 0)
+	# assignment: each transmission consists of two directions i and i+1
+	@variable(m, trans_in[timeseries, numtrans] >= 0)
+	@variable(m, trans_out[timeseries, numtrans] >= 0)
+
 
 	#
 	# Constraints
@@ -188,9 +266,17 @@ function build_model(filename; timeseries = 0:0, debug=false)
 	               sum{cap_avail[p] * processes[p].cost_fix, p = numprocess} +
 	               # variable costs
 	               sum{pro_through[t,p] * processes[p].cost_var,
-	                   t = timeseries, p = numprocess})
+	                   t = timeseries, p = numprocess} +
 
-	# capacity constraints
+	               # transmission costs
+	               sum{(trans_cap[tr] - transmissions[tr].cap_init) *
+	                   transmissions[tr].cost_inv * transmissions[tr].annuity_factor,
+	                   tr = numtrans} +
+	               sum{trans_cap[tr] * transmissions[tr].cost_fix, tr = numtrans} +
+	               sum{trans_in[t,tr] * transmissions[tr].cost_var,
+	                   t = timeseries, tr = numtrans})
+
+	# process constraints
 	# assume that cap_inst <= cap_min
 	@constraint(m, meet_cap_min[p = numprocess],
 	               cap_avail[p] >= processes[p].cap_min)
@@ -211,23 +297,39 @@ function build_model(filename; timeseries = 0:0, debug=false)
 	               natural_commodities[t, Symbol(string(processes[p].site,
 	                                             '.', processes[p].com_in.name))])
 
+	# transmission constraints
+	@constraint(m, meet_trans_cap_bounds[tr = numtrans],
+	               transmissions[tr].cap_min <= trans_cap[tr] <= transmissions[tr].cap_max)
+	@constraint(m, ensure_symmetry[tr = numtrans; tr%2 == 0],
+	               trans_cap[tr-1] == trans_cap[tr])
+
+	@constraint(m, check_trans_cap[t = timeseries, tr = numtrans],
+	               trans_in[t, tr] <= trans_cap[tr])
+	@constraint(m, out_commidity[t = timeseries, tr = numtrans],
+	               trans_out[t, tr] == trans_in[t, tr] * transmissions[tr].efficiency)
+
 	# demand constraints
 	@constraint(m, meet_demand[t = timeseries, s = 1:size(sites,1)],
 	               demand[t, Symbol(string(sites[s],".Elec"))] ==
 	               sum{com_out[t, p], p = numprocess;
-	                   processes[p].site == sites[s]})
+	                   processes[p].site == sites[s]} +
+	               sum{trans_out[t, tr], tr = numtrans;
+	                   transmissions[tr].right == sites[s]} -
+	               sum{trans_in[t, tr], tr = numtrans;
+	                   transmissions[tr].left == sites[s]})
 
 	return m
 end
 
 function solve_and_show(model)
-	sites, processes, demand, natural_commodities = read_excelfile(filename)
+	sites, processes, transmissions, demand, natural_commodities = read_excelfile(filename)
 	solve(model)
 	println("Optimal Cost ", getobjectivevalue(model))
 	println("Optimal Production by timestep and process")
 	production = getvalue(getvariable(model,:pro_through))
-	com_in = getvalue(getvariable(model,Symbol("com_in")))
+	com_in = getvalue(getvariable(model,:com_in))
 	capacities = getvalue(getvariable(model,:cap_avail))
+	trans_in = getvalue(getvariable(model,:trans_in))
 
 	function printhorizontal(prefix="", line=false)
 		if line
@@ -248,14 +350,14 @@ function solve_and_show(model)
 	printhorizontal("inv-cost", true)
 	print("\t")
 	for p in 1:JuMP.size(processes, 1)
-		print((capacities[p] - processes[p].cap_init) * processes[p].cost_inv * processes[p].annuity_factor, '\t')
+		@printf("%.3f\t", (capacities[p] - processes[p].cap_init) * processes[p].cost_inv * processes[p].annuity_factor)
 	end
 	println()
 
 	printhorizontal("fix-cost")
 	print("\t")
 	for p in 1:JuMP.size(processes, 1)
-		print(capacities[p] * processes[p].cost_fix, '\t')
+		@printf("%.3f\t", capacities[p] * processes[p].cost_fix)
 	end
 	println()
 
@@ -266,7 +368,7 @@ function solve_and_show(model)
 		for t in 1:JuMP.size(production, 2)
 			sum += com_in[t, p] * processes[p].com_in.price
 		end
-		print(sum , '\t')
+		@printf("%.3f\t", sum)
 	end
 	println()
 
@@ -277,14 +379,14 @@ function solve_and_show(model)
 		for t in 1:JuMP.size(production, 2)
 			sum += production[t,p] * processes[p].cost_var
 		end
-		print(sum, '\t')
+		@printf("%.3f\t", sum)
 	end
 	println()
 
 	printhorizontal("cap", true)
 	print("\t")
 	for i in 1:JuMP.size(capacities, 1)
-		print(capacities[i], '\t')
+		@printf("%.3f\t", capacities[i])
 	end
 	println()
 
@@ -292,14 +394,35 @@ function solve_and_show(model)
 	for i in 1:JuMP.size(production, 1)
 		print(i, '\t')
 		for j in 1:JuMP.size(production, 2)
-			print(production[i,j], '\t')
+			@printf("%.3f\t", production[i,j])
 		end
 		println()
 	end
 	print("sum\t")
 	for p in 1:JuMP.size(production, 2)
-			print(sum(production[:,p]), '\t')
+		@printf("%.3f\t", sum(production[:,p]))
 	end
+	println()
+
+	printhorizontal("transmissions", true)
+	print('\t')
+	for tr in 1:size(transmissions,1)
+		print(transmissions[tr].left[1:2], "->", transmissions[tr].right[1:2], '\t')
+	end
+	println()
+
+	for t in 1:JuMP.size(trans_in, 1)
+		print(t, '\t')
+		for tr in 1:JuMP.size(trans_in, 2)
+			@printf("%.3f\t", trans_in[t,tr])
+		end
+		println()
+	end
+	print("sum\t")
+	for tr in 1:JuMP.size(trans_in, 2)
+		@printf("%.3f\t", sum(trans_in[:,tr]))
+	end
+	println()
 
 end
 
