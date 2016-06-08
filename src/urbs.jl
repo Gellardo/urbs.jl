@@ -63,6 +63,30 @@ type Transmission
 	efficiency
 end
 
+type Storage
+	site
+	storage_type
+	# capacity/cost for for greater storage capacity
+	cap_init_c
+	cap_min_c
+	cap_max_c
+	cost_fix_c
+	cost_var_c
+	cost_inv_c
+	# capacity/cost for for greater in/output power
+	cap_init_p
+	cap_min_p
+	cap_max_p
+	cost_fix_p
+	cost_var_p
+	cost_inv_p
+	#other parameters
+	annuity_factor
+	efficiency_in
+	efficiency_out
+	fill_init
+end
+
 function read_xlsheet(file, sheetname; strict=true)
 	try
 		sheet = file.workbook[:sheet_by_name](sheetname)
@@ -205,14 +229,51 @@ function read_excelfile(filename, debug=false)
 		trans_array = append(trans_array, next_trans)
 	end
 
-	sites, process_array, trans_array, demand[:, 2:end], natural_commodities
+	storages = read_xlsheet(file, "Storage"; strict=false)
+	sto_array = []
+	for sto in 1:size(storages,1)
+		annuity_fac = 1
+		if :wacc in names(processes) && :depreciation in names(processes)
+			annuity_fac = calculate_annuity_factor(storages[sto, :wacc],
+			                                       storages[sto, :depreciation])
+		end
+		next_sto = Storage(storages[sto, Symbol("Site")],
+		                    storages[sto, Symbol("Storage")],
+		                    storages[sto, Symbol("inst-cap-c")],
+		                    storages[sto, Symbol("cap-lo-c")],
+		                    storages[sto, Symbol("cap-up-c")],
+		                    storages[sto, Symbol("fix-cost-c")],
+		                    storages[sto, Symbol("var-cost-c")],
+		                    storages[sto, Symbol("inv-cost-c")],
+		                    storages[sto, Symbol("inst-cap-p")],
+		                    storages[sto, Symbol("cap-lo-p")],
+		                    storages[sto, Symbol("cap-up-p")],
+		                    storages[sto, Symbol("fix-cost-p")],
+		                    storages[sto, Symbol("var-cost-p")],
+		                    storages[sto, Symbol("inv-cost-p")],
+		                    annuity_fac,
+		                    storages[sto, Symbol("eff-in")],
+		                    storages[sto, Symbol("eff-out")],
+		                    storages[sto, Symbol("init")])
+		if next_sto.cap_min_c < next_sto.cap_init_c
+			print("warning: cap-lo-c smaller than installed capacity")
+			next_sto.cap_min_c = next_sto.cap_init_c
+		end
+		if next_sto.cap_min_p < next_sto.cap_init_p
+			print("warning: cap-lo-p smaller than installed capacity")
+			next_sto.cap_min_p = next_sto.cap_init_p
+		end
+		sto_array = append(sto_array, next_sto)
+	end
+
+	sites, process_array, trans_array, sto_array, demand[:, 2:end], natural_commodities
 end
 
 function build_model(filename; timeseries = 0:0, debug = false)
 	build_model(read_excelfile(filename)...;timeseries = timeseries, debug = debug)
 end
 
-function build_model(sites, processes, transmissions, demand, natural_commodities;
+function build_model(sites, processes, transmissions, storages, demand, natural_commodities;
 	                 timeseries = 0:0, debug = false)
 	# read
 	if timeseries == 0:0
@@ -326,7 +387,7 @@ function build_model(sites, processes, transmissions, demand, natural_commoditie
 end
 
 function solve_and_show(model)
-	sites, processes, transmissions, demand, natural_commodities = read_excelfile(filename)
+	sites, processes, transmissions, storages, demand, natural_commodities = read_excelfile(filename)
 	solve(model)
 	println("Optimal Cost ", getobjectivevalue(model))
 	println("Optimal Production by timestep and process")
