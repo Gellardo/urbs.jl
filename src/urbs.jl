@@ -208,9 +208,13 @@ function read_excelfile(filename, debug=false)
 	sites, process_array, trans_array, demand[:, 2:end], natural_commodities
 end
 
-function build_model(filename; timeseries = 0:0, debug=false)
+function build_model(filename; timeseries = 0:0, debug = false)
+	build_model(read_excelfile(filename)...;timeseries = timeseries, debug = debug)
+end
+
+function build_model(sites, processes, transmissions, demand, natural_commodities;
+	                 timeseries = 0:0, debug = false)
 	# read
-	sites, processes, transmissions, demand, natural_commodities = read_excelfile(filename)
 	if timeseries == 0:0
 	    timeseries = 1:size(demand, 1)
 	end
