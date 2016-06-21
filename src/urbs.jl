@@ -63,6 +63,30 @@ type Transmission
 	efficiency
 end
 
+type Storage
+	site
+	storage_type
+	# capacity/cost for for greater storage capacity
+	cap_init_c
+	cap_min_c
+	cap_max_c
+	cost_fix_c
+	cost_var_c
+	cost_inv_c
+	# capacity/cost for for greater in/output power
+	cap_init_p
+	cap_min_p
+	cap_max_p
+	cost_fix_p
+	cost_var_p
+	cost_inv_p
+	#other parameters
+	annuity_factor
+	efficiency_in
+	efficiency_out
+	fill_init
+end
+
 function read_xlsheet(file, sheetname; strict=true)
 	try
 		sheet = file.workbook[:sheet_by_name](sheetname)
@@ -194,6 +218,9 @@ function read_excelfile(filename, debug=false)
 			print("warning: cap-lo smaller than installed capacity")
 			next_trans.cap_min = next_trans.cap_init
 		end
+		if next_trans.cap_max == "inf"
+			next_trans.cap_max = Inf
+		end
 		next_trans.cost_inv *= 0.5
 		next_trans.cost_fix *= 0.5
 		trans_array = append(trans_array, next_trans)
@@ -205,14 +232,57 @@ function read_excelfile(filename, debug=false)
 		trans_array = append(trans_array, next_trans)
 	end
 
-	sites, process_array, trans_array, demand[:, 2:end], natural_commodities
+	storages = read_xlsheet(file, "Storage"; strict=false)
+	sto_array = []
+	for sto in 1:size(storages,1)
+		annuity_fac = 1
+		if :wacc in names(processes) && :depreciation in names(processes)
+			annuity_fac = calculate_annuity_factor(storages[sto, :wacc],
+			                                       storages[sto, :depreciation])
+		end
+		next_sto = Storage(storages[sto, Symbol("Site")],
+		                    storages[sto, Symbol("Storage")],
+		                    storages[sto, Symbol("inst-cap-c")],
+		                    storages[sto, Symbol("cap-lo-c")],
+		                    storages[sto, Symbol("cap-up-c")],
+		                    storages[sto, Symbol("fix-cost-c")],
+		                    storages[sto, Symbol("var-cost-c")],
+		                    storages[sto, Symbol("inv-cost-c")],
+		                    storages[sto, Symbol("inst-cap-p")],
+		                    storages[sto, Symbol("cap-lo-p")],
+		                    storages[sto, Symbol("cap-up-p")],
+		                    storages[sto, Symbol("fix-cost-p")],
+		                    storages[sto, Symbol("var-cost-p")],
+		                    storages[sto, Symbol("inv-cost-p")],
+		                    annuity_fac,
+		                    storages[sto, Symbol("eff-in")],
+		                    storages[sto, Symbol("eff-out")],
+		                    storages[sto, Symbol("init")])
+		if next_sto.cap_min_c < next_sto.cap_init_c
+			print("warning: cap-lo-c smaller than installed capacity")
+			next_sto.cap_min_c = next_sto.cap_init_c
+		end
+		if next_sto.cap_min_p < next_sto.cap_init_p
+			print("warning: cap-lo-p smaller than installed capacity")
+			next_sto.cap_min_p = next_sto.cap_init_p
+		end
+		if next_sto.cap_max_c == "inf"
+			next_sto.cap_max_c = Inf
+		end
+		if next_sto.cap_max_p == "inf"
+			next_sto.cap_max_p = Inf
+		end
+		sto_array = append(sto_array, next_sto)
+	end
+
+	sites, process_array, trans_array, sto_array, demand[:, 2:end], natural_commodities
 end
 
 function build_model(filename; timeseries = 0:0, debug = false)
 	build_model(read_excelfile(filename)...;timeseries = timeseries, debug = debug)
 end
 
-function build_model(sites, processes, transmissions, demand, natural_commodities;
+function build_model(sites, processes, transmissions, storages, demand, natural_commodities;
 	                 timeseries = 0:0, debug = false)
 	# read
 	if timeseries == 0:0
@@ -221,6 +291,7 @@ function build_model(sites, processes, transmissions, demand, natural_commoditie
 	numprocess = 1:size(processes,1)
 	numsite = 1:size(sites,1)
 	numtrans = 1:size(transmissions,1)
+	numsto = 1:size(storages,1)
 
 	if debug
 	    println("read data")
@@ -229,6 +300,7 @@ function build_model(sites, processes, transmissions, demand, natural_commoditie
 	    println(processes)
 	    println(demand)
 	    println(transmissions)
+	    println(storages)
 	end
 
 	# build model
@@ -251,6 +323,14 @@ function build_model(sites, processes, transmissions, demand, natural_commoditie
 	# assignment: each transmission consists of two directions i and i+1
 	@variable(m, trans_in[timeseries, numtrans] >= 0)
 	@variable(m, trans_out[timeseries, numtrans] >= 0)
+
+	# storage variables
+	# cap_c, cap_p, sto_in, sto_out, sto_content
+	@variable(m, sto_cap_c[numsto] >= 0)
+	@variable(m, sto_cap_p[numsto] >= 0)
+	@variable(m, sto_in[timeseries, numsto] >= 0)
+	@variable(m, sto_out[timeseries, numsto] >= 0)
+	@variable(m, sto_content[0:timeseries.stop, numsto] >= 0)
 
 
 	#
@@ -278,7 +358,24 @@ function build_model(sites, processes, transmissions, demand, natural_commoditie
 	                   tr = numtrans} +
 	               sum{trans_cap[tr] * transmissions[tr].cost_fix, tr = numtrans} +
 	               sum{trans_in[t,tr] * transmissions[tr].cost_var,
-	                   t = timeseries, tr = numtrans})
+	                   t = timeseries, tr = numtrans} +
+
+				   # storage cost
+				   # power
+	               sum{(sto_cap_p[st] - storages[st].cap_init_p) *
+	                   storages[st].cost_inv_p * storages[st].annuity_factor,
+	                   st = numsto} +
+	               sum{sto_cap_p[st] * storages[st].cost_fix_p, st = numsto} +
+	               sum{(sto_in[t, st] + sto_out[t, st]) * storages[st].cost_var_p,
+	                   t = timeseries, st = numsto} +
+	               # capacity
+	               sum{(sto_cap_c[st] - storages[st].cap_init_c) *
+	                   storages[st].cost_inv_c * storages[st].annuity_factor,
+	                   st = numsto} +
+	               sum{sto_cap_c[st] * storages[st].cost_fix_c, st = numsto} +
+	               sum{sto_content[t, st] * storages[st].cost_var_c,
+	                   t = timeseries, st = numsto}
+	            )
 
 	# process constraints
 	# assume that cap_inst <= cap_min
@@ -312,6 +409,30 @@ function build_model(sites, processes, transmissions, demand, natural_commoditie
 	@constraint(m, out_commidity[t = timeseries, tr = numtrans],
 	               trans_out[t, tr] == trans_in[t, tr] * transmissions[tr].efficiency)
 
+	# storage constraints
+	@constraint(m, meet_sto_cap_c_bounds[st = numsto],
+	               storages[st].cap_min_c <= sto_cap_c[st] <= storages[st].cap_max_c)
+	@constraint(m, meet_sto_cap_p_bounds[st = numsto],
+	               storages[st].cap_min_p <= sto_cap_p[st] <= storages[st].cap_max_p)
+	@constraint(m, check_sto_cap_p_in[t = timeseries, st = numsto],
+	               sto_in[t, st] <= sto_cap_p[st])
+	@constraint(m, check_sto_cap_p_out[t = timeseries, st = numsto],
+	               sto_out[t, st] <= sto_cap_p[st])
+	@constraint(m, check_sto_cap_c[t = timeseries, st = numsto],
+	               sto_content[t, st] <= sto_cap_c[st])
+	# sto_content[t] == sto_content[t-1]+sto_in[t]*efficiency_in*dt-sto_out[t]*eff_out*dt
+	@constraint(m, sto_time_relation[t = timeseries, st = numsto],
+	               sto_content[t, st] == sto_content[t-1, st] +
+	                                     sto_in[t, st] * storages[st].efficiency_in -
+	                                     sto_out[t, st] / storages[st].efficiency_out)
+	# TODO indexing? start normal time with 2 or add t=0 to 1-based indexing
+	# sto_content[0] == init * cap_c
+	@constraint(m, sto_init[st = numsto],
+	               sto_content[0, st] == storages[st].fill_init * sto_cap_c[st])
+	# sto_content[end] >= init * cap_c
+	@constraint(m, sto_init[st = numsto],
+	               sto_content[timeseries.stop, st] >= storages[st].fill_init * sto_cap_c[st])
+
 	# demand constraints
 	@constraint(m, meet_demand[t = timeseries, s = 1:size(sites,1)],
 	               demand[t, Symbol(string(sites[s],".Elec"))] ==
@@ -320,13 +441,15 @@ function build_model(sites, processes, transmissions, demand, natural_commoditie
 	               sum{trans_out[t, tr], tr = numtrans;
 	                   transmissions[tr].right == sites[s]} -
 	               sum{trans_in[t, tr], tr = numtrans;
-	                   transmissions[tr].left == sites[s]})
+	                   transmissions[tr].left == sites[s]} -
+	               sum{sto_in[t, st], st = numsto; storages[st].site == sites[s]} +
+	               sum{sto_out[t, st], st = numsto; storages[st].site == sites[s]})
 
 	return m
 end
 
 function solve_and_show(model)
-	sites, processes, transmissions, demand, natural_commodities = read_excelfile(filename)
+	sites, processes, transmissions, storages, demand, natural_commodities = read_excelfile(filename)
 	solve(model)
 	println("Optimal Cost ", getobjectivevalue(model))
 	println("Optimal Production by timestep and process")
