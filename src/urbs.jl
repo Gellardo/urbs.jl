@@ -226,9 +226,7 @@ function read_excelfile(filename, debug=false)
 		trans_array = append(trans_array, next_trans)
 		# add the reverse way
 		next_trans = deepcopy(next_trans)
-		tmp = next_trans.left
-		next_trans.left = next_trans.right
-		next_trans.right = tmp
+		next_trans.left, next_trans.right = next_trans.right, next_trans.left
 		trans_array = append(trans_array, next_trans)
 	end
 
@@ -435,7 +433,7 @@ function build_model(sites, processes, transmissions, storages, demand, natural_
 
 	# demand constraints
 	@constraint(m, meet_demand[t = timeseries, s = 1:size(sites,1)],
-	               demand[t, Symbol(string(sites[s],".Elec"))] ==
+	               demand[t, Symbol(string(sites[s],".Elec"))] <=
 	               sum{com_out[t, p], p = numprocess;
 	                   processes[p].site == sites[s]} +
 	               sum{trans_out[t, tr], tr = numtrans;
