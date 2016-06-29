@@ -1,14 +1,15 @@
 using urbs
 using JuMP
 
-function profile(filename, maxtimesteps; it_outer=10, it_inner=10, solve=false, cutoff=60)
-	timing = zeros(it_outer)
-	solvetime = zeros(it_outer)
+function profile(filename, maxtime; stepsize=10, iterations=10, solve=false, cutoff=60)
+	outer_iterations = round(Int, maxtime/stepsize)
+	timing = zeros(outer_iterations)
+	solvetime = zeros(outer_iterations)
 	function ret_values(outer, i)
-		timing = timing ./ it_inner
-		solvetime = solvetime ./ it_inner
-		timing[outer] = timing[outer] * it_inner / i
-		solvetime[outer] = solvetime[outer] * it_inner / i
+		timing = timing ./ iterations
+		solvetime = solvetime ./ iterations
+		timing[outer] = timing[outer] * iterations / i
+		solvetime[outer] = solvetime[outer] * iterations / i
 		if solve
 			return (timing, solvetime, i)
 		else
@@ -16,11 +17,12 @@ function profile(filename, maxtimesteps; it_outer=10, it_inner=10, solve=false, 
 		end
 	end
 	inputs = urbs.read_excelfile(filename)
-	for mt = maxtimesteps/it_outer:maxtimesteps/it_outer:maxtimesteps
-		outer = round(Int, mt/maxtimesteps*it_outer)
-		for i = 1:it_inner
+	for mt = stepsize:stepsize:maxtime
+		outer = round(Int, mt/stepsize)
+		for i = 1:iterations
+			println(mt, " ", i)
 			t = time()
-			m = urbs.build_model(inputs...; timeseries=1:round(Int, mt))
+			m = urbs.build_model(inputs...; timeseries=1:mt)
 			timing[outer] += time() - t
 			# with solving?
 			if solve
@@ -36,9 +38,9 @@ function profile(filename, maxtimesteps; it_outer=10, it_inner=10, solve=false, 
 		end
 	end
 	if solve
-		return ret_values(it_outer, it_inner)
+		return ret_values(outer_iterations, iterations)
 	else
-		return ret_values(it_outer, it_inner)
+		return ret_values(outer_iterations, iterations)
 	end
 end
 
