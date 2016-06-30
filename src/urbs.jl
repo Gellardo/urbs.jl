@@ -173,7 +173,7 @@ function read_excelfile(filename, debug=false)
 			commodity = Commodity(processCommodity[i, :Commodity],
 			                      "",
 			                      processCommodity[i, :ratio], 0)
-			if processCommodity[i,:Direction] == "out"
+			if processCommodity[i,:Direction] == "Out"
 				process.com_out = commodity
 			else
 				process.com_in = commodity
