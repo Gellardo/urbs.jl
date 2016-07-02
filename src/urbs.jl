@@ -118,7 +118,7 @@ function calculate_annuity_factor(n, i)
 	(1 + i)^n * i / ((1 + i)^n - 1)
 end
 
-function read_excelfile(filename, debug=false)
+function read_excelfile(filename; debug=false, legacy=false)
 	file = openxl(filename)
 
 	commodities = read_xlsheet(file, "Commodity")
@@ -221,12 +221,14 @@ function read_excelfile(filename, debug=false)
 		if next_trans.cap_max == "inf"
 			next_trans.cap_max = Inf
 		end
-		next_trans.cost_inv *= 0.5
-		next_trans.cost_fix *= 0.5
-		trans_array = append(trans_array, next_trans)
-		# add the reverse way
-		next_trans = deepcopy(next_trans)
-		next_trans.left, next_trans.right = next_trans.right, next_trans.left
+		if !legacy
+			next_trans.cost_inv *= 0.5
+			next_trans.cost_fix *= 0.5
+			trans_array = append(trans_array, next_trans)
+			# add the reverse way
+			next_trans = deepcopy(next_trans)
+			next_trans.left, next_trans.right = next_trans.right, next_trans.left
+		end
 		trans_array = append(trans_array, next_trans)
 	end
 
@@ -276,8 +278,8 @@ function read_excelfile(filename, debug=false)
 	sites, process_array, trans_array, sto_array, demand[:, 2:end], natural_commodities
 end
 
-function build_model(filename; timeseries = 0:0, debug = false)
-	build_model(read_excelfile(filename)...;timeseries = timeseries, debug = debug)
+function build_model(filename; timeseries = 0:0, debug = false, legacy=false)
+	build_model(read_excelfile(filename; legacy = legacy)...;timeseries = timeseries, debug = debug)
 end
 
 function build_model(sites, processes, transmissions, storages, demand, natural_commodities;
