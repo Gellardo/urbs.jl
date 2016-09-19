@@ -4,8 +4,21 @@ using JuMP
 using ExcelReaders
 using DataFrames
 
+export Urbsmodel, solve
 # for convenience
 filename = normpath(Pkg.dir("urbs"), "test", "left-right.xlsx")
+
+type Urbsmodel
+	"JuMP model, set to null for storage"
+	model
+	sites
+	process_array
+	trans_array
+	sto_array
+	demand
+	natural_commodities
+	variables
+end
 
 type Process
 	site
@@ -445,18 +458,31 @@ function build_model(sites, processes, transmissions, storages, demand, natural_
 	               sum{sto_in[t, st], st = numsto; storages[st].site == sites[s]} +
 	               sum{sto_out[t, st], st = numsto; storages[st].site == sites[s]})
 
-	return m
+	return Urbsmodel(m, sites, processes, transmissions, storages, demand, natural_commodities, Dict())
 end
 
-function solve_and_show(model)
-	sites, processes, transmissions, storages, demand, natural_commodities = read_excelfile(filename)
-	solve(model)
-	println("Optimal Cost ", getobjectivevalue(model))
+function solve(model::urbs.Urbsmodel)
+	m = model.model
+	JuMP.solve(m)
+	#TODO extract variables from model
+end
+
+# TODO use variables field
+function show(model::urbs.Urbsmodel)
+	m = model.model
+	sites = model.sites
+	processes = model.process_array
+	transmissions = model.trans_array
+	storages = model.sto_array
+	demand = model.demand
+	natural_commodities = model.natural_commodities
+
+	println("Optimal Cost ", getobjectivevalue(m))
 	println("Optimal Production by timestep and process")
-	production = getvalue(getvariable(model,:pro_through))
-	com_in = getvalue(getvariable(model,:com_in))
-	capacities = getvalue(getvariable(model,:cap_avail))
-	trans_in = getvalue(getvariable(model,:trans_in))
+	production = getvalue(getvariable(m,:pro_through))
+	com_in = getvalue(getvariable(m,:com_in))
+	capacities = getvalue(getvariable(m,:cap_avail))
+	trans_in = getvalue(getvariable(m,:trans_in))
 
 	function printhorizontal(prefix="", line=false)
 		if line
