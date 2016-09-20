@@ -465,6 +465,13 @@ function solve(model::urbs.Urbsmodel)
 	m = model.model
 	JuMP.solve(m)
 	#TODO extract variables from model
+	model.variables["objectivevalue"] = getobjectivevalue(m)
+	model.variables["pro_through"] = getvalue(getvariable(m, :pro_through))
+	model.variables["com_in"] = getvalue(getvariable(m,:com_in))
+	model.variables["cap_avail"] = getvalue(getvariable(m,:cap_avail))
+	model.variables["trans_in"] = getvalue(getvariable(m,:trans_in))
+	model.variables["sto_cap_c"] = getvalue(getvariable(m,:sto_cap_c))
+	model.variables["sto_cap_p"] = getvalue(getvariable(m,:sto_cap_p))
 end
 
 # TODO use variables field
@@ -477,12 +484,12 @@ function show(model::urbs.Urbsmodel)
 	demand = model.demand
 	natural_commodities = model.natural_commodities
 
-	println("Optimal Cost ", getobjectivevalue(m))
+	println("Optimal Cost ", m.variables["objectivevalue"])
 	println("Optimal Production by timestep and process")
-	production = getvalue(getvariable(m,:pro_through))
-	com_in = getvalue(getvariable(m,:com_in))
-	capacities = getvalue(getvariable(m,:cap_avail))
-	trans_in = getvalue(getvariable(m,:trans_in))
+	production = m.variables["pro_through"]
+	com_in = m.variables["com_in"]
+	capacities = m.variables["cap_avail"]
+	trans_in = m.variables["trans_in"]
 
 	function printhorizontal(prefix="", line=false)
 		if line

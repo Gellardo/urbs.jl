@@ -27,12 +27,11 @@ rename!(x -> Symbol("A.Elec"), demand)
 process = [urbs.Process(sites[1], "test", 1, 1, 10, 100, 10, 1000, 1, urbs.Commodity("coal", "Stock", 1, 1), urbs.Commodity("Elec", "", 1, 0))]
 m = urbs.build_model(sites, process, [], [], demand, [])
 urbs.solve(m)
-m = m.model
-@test 5 == getvalue(getvariable(m, :cap_avail))[1]
-pro_through = getvalue(getvariable(m, :pro_through))
+@test 5 == m.variables["cap_avail"][1]
+pro_through = m.variables["pro_through"]
 @test [1;5] == pro_through.innerArray[:,1]
-@test pro_through.innerArray == getvalue(getvariable(m, :com_in)).innerArray
-@test 4566 == getobjectivevalue(m)
+@test pro_through.innerArray == m.variables["com_in"].innerArray
+@test 4566 == m.variables["objectivevalue"]
 
 process, nat_com = getFreeNaturalProcess(sites[1]; timesteps=2)
 process[1].cost_inv = 1000
@@ -43,12 +42,11 @@ nat_com[1][1] = 0.2
 nat_com[1][2] = 1
 m = urbs.build_model(sites, process, [], [], demand, nat_com)
 urbs.solve(m)
-m = m.model
-@test 5 == getvalue(getvariable(m, :cap_avail))[1]
-pro_through = getvalue(getvariable(m, :pro_through))
+@test 5 == m.variables["cap_avail"][1]
+pro_through = m.variables["pro_through"]
 @test [1;5] == pro_through.innerArray[:,1]
-@test pro_through.innerArray == getvalue(getvariable(m, :com_in)).innerArray
-@test 5560 == getobjectivevalue(m)
+@test pro_through.innerArray == m.variables["com_in"].innerArray
+@test 5560 == m.variables["objectivevalue"]
 
 
 # test transmission
@@ -60,8 +58,7 @@ nat_com[:] = 1
 transmissions = generateTransmissionPair(sites[1], sites[2]; inv = 1000, fix = 100, var = 10)
 m = urbs.build_model(sites, process, transmissions, [], demand, nat_com)
 urbs.solve(m)
-m = m.model
-@test 4460 == getobjectivevalue(m)
+@test 4460 == m.variables["objectivevalue"]
 
 
 # test storage
@@ -75,15 +72,13 @@ capacity = (0,0,Inf,10000,1000,100000)
 storage = [ urbs.Storage("A","sto", capacity..., power..., 1,1,1,0) ]
 m = urbs.build_model(sites, process, [], storage, demand, nat_com)
 urbs.solve(m)
-m = m.model
-@test 5 == getvalue(getvariable(m, :sto_cap_c))[1]
-@test 5 == getvalue(getvariable(m, :sto_cap_p))[1]
-@test 555555 == getobjectivevalue(m)
+@test 5 == m.variables["sto_cap_c"][1]
+@test 5 == m.variables["sto_cap_p"][1]
+@test 555555 == m.variables["objectivevalue"]
 
 
 # test on whole file
 filename = normpath(Pkg.dir("urbs"),"test", "left-right.xlsx")
 m = urbs.build_model(filename)
 urbs.solve(m)
-m = m.model
-@test isapprox(632.6, getobjectivevalue(m))
+@test isapprox(632.6, m.variables["objectivevalue"])
