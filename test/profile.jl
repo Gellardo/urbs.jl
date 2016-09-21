@@ -27,7 +27,7 @@ function profile(filename, maxtime; stepsize=10, iterations=10, solve=false, cut
 			# with solving?
 			if solve
 				t = time()
-				JuMP.solve(m)
+				urbs.solve(m)
 				solvetime[outer] += time() - t
 			end
 
@@ -42,5 +42,33 @@ function profile(filename, maxtime; stepsize=10, iterations=10, solve=false, cut
 	else
 		return ret_values(outer_iterations, iterations)
 	end
+end
+
+function profiletolog(filename; logfile="", cutoff=60)
+	if logfile == ""
+		logfile = normpath(Pkg.dir("urbs"), "test", string(now(),".csv"))
+	end
+
+	maxt = 4
+
+	open(logfile, "a") do f
+		println(f, "maxt,overall, model, solve")
+		for i = 1:10
+			inputs = urbs.read_excelfile(filename)
+			startingtime = time()
+			m = urbs.build_model(inputs...; timeseries=1:maxt)
+			modeltime = time()-startingtime
+			urbs.solve(m)
+			solvetime = time() - startingtime - modeltime
+			overall = modeltime + solvetime
+			@printf(f, "%7d,%7.4f,%7.4f,%7.4f\n", maxt, overall, modeltime, solvetime)
+		end
+	end
+
+	#for debugging
+	open(logfile,"r") do f
+		print(readall(f))
+	end
+
 end
 
