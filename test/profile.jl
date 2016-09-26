@@ -1,5 +1,4 @@
 using urbs
-using JuMP
 
 function profile(filename, maxtime; stepsize=10, iterations=10, solve=false, cutoff=60)
 	outer_iterations = round(Int, maxtime/stepsize)
@@ -44,25 +43,41 @@ function profile(filename, maxtime; stepsize=10, iterations=10, solve=false, cut
 	end
 end
 
-function profiletolog(filename; logfile="", cutoff=60)
+"""
+	profiletolog(filename, maxt; <keyword arguments>)
+
+pofile model generation and solvetime for urbs.jl.
+
+# Arguments
+* stepsize: percentage of maxt to increase with each step
+* logfile: filename, defaults to <urbsdir>/test/<datetime>.csv
+* cutoff: stops profiling, after a step has taken longer than cutoff seconds
+"""
+function profiletolog(filename, maxt; stepsize = 1/50, logfile="", cutoff=60, solve=true)
 	if logfile == ""
-		logfile = normpath(Pkg.dir("urbs"), "test", string(now(),".csv"))
+		if !isdir(normpath(Pkg.dir("urbs"), "test", "result"))
+			mkdir(normpath(Pkg.dir("urbs"), "test", "result"))
+		end
+		logfile = normpath(Pkg.dir("urbs"), "test", "result", string(now(),".csv"))
 	end
 
-	maxt = 4
-
 	open(logfile, "a") do f
-		println(f, "maxt,overall, model, solve")
-		for i = 1:10
-			inputs = urbs.read_excelfile(filename)
+		println(f, "#maxt,overall, model, solve")
+		println("reading file")
+		inputs = urbs.read_excelfile(filename)
+		println("starting iterations")
+		step = round(Int, maxt*stepsize)
+		for t = step:step:maxt
+			println("iteration $t/$maxt; solve=$solve")
 			startingtime = time()
-			m = urbs.build_model(inputs...; timeseries=1:maxt)
+			m = urbs.build_model(inputs...; timeseries=1:t)
 			modeltime = time()-startingtime
 			urbs.solve(m)
 			solvetime = time() - startingtime - modeltime
 			overall = modeltime + solvetime
-			@printf(f, "%7d,%7.4f,%7.4f,%7.4f\n", maxt, overall, modeltime, solvetime)
+			@printf(f, "%7d,%7.4f,%7.4f,%7.4f\n", t, overall, modeltime, solvetime)
 		end
+		println("done")
 	end
 
 	#for debugging
