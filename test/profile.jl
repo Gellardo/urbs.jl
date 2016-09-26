@@ -72,10 +72,24 @@ function profiletolog(filename, maxt; stepsize = 1/50, logfile="", cutoff=60, so
 			startingtime = time()
 			m = urbs.build_model(inputs...; timeseries=1:t)
 			modeltime = time()-startingtime
-			urbs.solve(m)
-			solvetime = time() - startingtime - modeltime
+			if solve
+				urbs.solve(m)
+				solvetime = time() - startingtime - modeltime
+			else
+				solvetime = 0
+			end
 			overall = modeltime + solvetime
-			@printf(f, "%7d,%7.4f,%7.4f,%7.4f\n", t, overall, modeltime, solvetime)
+			@printf(f, "%7d %7.4f %7.4f %7.4f\n", t, overall, modeltime, solvetime)
+
+			# turn of solving if it takes longer than cutoff
+			if overall > cutoff
+				if solve
+					solve = false
+				else
+					break
+				end
+			end
+			flush(f)
 		end
 		println("done")
 	end
