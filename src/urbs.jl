@@ -466,12 +466,12 @@ function solve(model::urbs.Urbsmodel)
 	JuMP.solve(m)
 	#TODO extract variables from model
 	model.variables["objectivevalue"] = getobjectivevalue(m)
-	model.variables["pro_through"] = getvalue(getvariable(m, :pro_through))
-	model.variables["com_in"] = getvalue(getvariable(m,:com_in))
-	model.variables["cap_avail"] = getvalue(getvariable(m,:cap_avail))
-	model.variables["trans_in"] = getvalue(getvariable(m,:trans_in))
-	model.variables["sto_cap_c"] = getvalue(getvariable(m,:sto_cap_c))
-	model.variables["sto_cap_p"] = getvalue(getvariable(m,:sto_cap_p))
+	model.variables["pro_through"] = getvalue(getvariable(m, :pro_through)).innerArray
+	model.variables["com_in"] = getvalue(getvariable(m,:com_in)).innerArray
+	model.variables["cap_avail"] = getvalue(getvariable(m,:cap_avail)).innerArray
+	model.variables["trans_in"] = getvalue(getvariable(m,:trans_in)).innerArray
+	model.variables["sto_cap_c"] = getvalue(getvariable(m,:sto_cap_c)).innerArray
+	model.variables["sto_cap_p"] = getvalue(getvariable(m,:sto_cap_p)).innerArray
 end
 
 # TODO use variables field

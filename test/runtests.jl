@@ -29,8 +29,8 @@ m = urbs.build_model(sites, process, [], [], demand, [])
 urbs.solve(m)
 @test 5 == m.variables["cap_avail"][1]
 pro_through = m.variables["pro_through"]
-@test [1;5] == pro_through.innerArray[:,1]
-@test pro_through.innerArray == m.variables["com_in"].innerArray
+@test [1;5] == pro_through[:,1]
+@test pro_through == m.variables["com_in"]
 @test 4566 == m.variables["objectivevalue"]
 
 process, nat_com = getFreeNaturalProcess(sites[1]; timesteps=2)
@@ -44,8 +44,8 @@ m = urbs.build_model(sites, process, [], [], demand, nat_com)
 urbs.solve(m)
 @test 5 == m.variables["cap_avail"][1]
 pro_through = m.variables["pro_through"]
-@test [1;5] == pro_through.innerArray[:,1]
-@test pro_through.innerArray == m.variables["com_in"].innerArray
+@test [1;5] == pro_through[:,1]
+@test pro_through == m.variables["com_in"]
 @test 5560 == m.variables["objectivevalue"]
 
 
