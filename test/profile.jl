@@ -62,7 +62,7 @@ function profiletolog(filename, maxt; stepsize = 1/50, logfile="", cutoff=60, so
 	end
 
 	open(logfile, "a") do f
-		println(f, "#maxt,overall, model, solve")
+		println(f, "#maxt,overall, model, solve, modelmem")
 		println("reading file")
 		inputs = urbs.read_excelfile(filename)
 		println("starting iterations")
@@ -70,8 +70,7 @@ function profiletolog(filename, maxt; stepsize = 1/50, logfile="", cutoff=60, so
 		for t = step:step:maxt
 			println("iteration $t/$maxt; solve=$solve")
 			startingtime = time()
-			m = urbs.build_model(inputs...; timeseries=1:t)
-			modeltime = time()-startingtime
+			m, modeltime, modelmem, _, _ = @timed urbs.build_model(inputs...; timeseries=1:t)
 			if solve
 				urbs.solve(m)
 				solvetime = time() - startingtime - modeltime
@@ -79,7 +78,7 @@ function profiletolog(filename, maxt; stepsize = 1/50, logfile="", cutoff=60, so
 				solvetime = 0
 			end
 			overall = modeltime + solvetime
-			@printf(f, "%7d %7.4f %7.4f %7.4f\n", t, overall, modeltime, solvetime)
+			@printf(f, "%7d %7.4f %7.4f %7.4f %d\n", t, overall, modeltime, solvetime, modelmem)
 
 			# turn of solving if it takes longer than cutoff
 			if overall > cutoff
